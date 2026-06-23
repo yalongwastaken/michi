@@ -12,6 +12,7 @@ import {
   addTask,
   setDone,
   resetAll,
+  replaceCompletions,
   ConflictError,
 } from "./db.js";
 import { buildToday, momentum } from "./engine.js";
@@ -131,7 +132,10 @@ app.post("/api/import", (req, res) => {
     return res.status(400).json({ error: bad });
   }
   try {
-    res.json(putState(body)); // no rev check — deliberate replace
+    putState(body); // no rev check — deliberate replace
+    // import is the one path that rebuilds server-owned activity history, so a
+    // restored backup brings streaks/heatmap back too
+    res.json(replaceCompletions(body.completions || []));
   } catch (e) {
     console.warn("POST /api/import failed:", e.message);
     res.status(400).json({ error: "import failed — file may be malformed" });

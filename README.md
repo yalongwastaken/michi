@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.1.0** · self-hosted · single-user · no cloud, no AI in the product
+**v0.1.1** · self-hosted · single-user · no cloud, no AI in the product
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your

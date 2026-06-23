@@ -19,8 +19,8 @@ const META = {
   idea: {
     label: "Ideas",
     icon: Lightbulb,
-    tint: "text-amber-500",
-    chip: "bg-amber-50 text-amber-600 dark:bg-amber-950/40",
+    tint: "text-iris-600",
+    chip: "bg-iris-50 text-iris-600 dark:bg-iris-950/40",
   },
   active: {
     label: "In progress",

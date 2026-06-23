@@ -23,16 +23,16 @@ body {
   @apply bg-slate-950 text-slate-100;
 }
 
-/* a soft "trail" gradient used behind the header */
+/* the brand gradient: green meets violet — Michi's two core colors in balance */
 .trail-gradient {
   background-image:
-    radial-gradient(120% 100% at 0% 0%, theme("colors.trail.50") 0%, transparent 60%),
-    radial-gradient(120% 100% at 100% 0%, theme("colors.sand.100") 0%, transparent 55%);
+    radial-gradient(120% 100% at 0% 0%, theme("colors.trail.100") 0%, transparent 60%),
+    radial-gradient(120% 100% at 100% 0%, theme("colors.iris.100") 0%, transparent 58%);
 }
 .dark .trail-gradient {
   background-image:
     radial-gradient(120% 100% at 0% 0%, theme("colors.trail.900") 0%, transparent 60%),
-    radial-gradient(120% 100% at 100% 0%, theme("colors.slate.900") 0%, transparent 55%);
+    radial-gradient(120% 100% at 100% 0%, theme("colors.iris.900") 0%, transparent 58%);
 }
 
 @media (prefers-reduced-motion: no-preference) {
