@@ -1,0 +1,125 @@
+# Michi — personal learning coach
+
+**v0.1.0** · self-hosted · single-user · no cloud, no AI in the product
+
+道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
+should go, Michi coaches where your **time and effort** should go. It turns your
+scattered learning goals and roadmaps into one place that tells you what to work on
+**today**, then tracks your momentum as you go.
+
+It's a single-user app designed to run on the same mini PC as Tsumiki and be reached
+privately from your phone or laptop over [Tailscale](https://tailscale.com) — no public
+ports, no cloud, your data never leaves your own devices.
+
+## The idea
+
+You have more learning goals than you can hold in your head: roadmap.sh tracks, GitHub
+roadmaps, courses, books, half-started repos. Michi gives them structure and a daily
+front door.
+
+- **Roadmaps** — a learning path broken into **milestones → steps**. Track % complete.
+- **Today** — the home screen. A focused daily queue: overdue and due tasks, plus the
+  _next step_ from each active roadmap. "What should I work on today?"
+- **Projects** — the meaningful things you want to build/ship, moved from idea →
+  in progress → shipped (because learning sticks when you build).
+- **Momentum** — a streak, a contribution-style heatmap, longest streak, active days,
+  and per-roadmap progress. Streak **freezes** let you miss a day without losing it.
+
+## Architecture
+
+The **mini PC is the brain**: it runs the server, holds the SQLite database, and runs
+the Today/momentum engine. Phones and laptops are thin web clients that talk to it over
+the API.
+
+```
+server/   Express + node:sqlite API + the Today/momentum engine. No native deps.
+client/   Vite + React single-page app (thin client, installable PWA).
+deploy/   michi.service — a systemd unit for running it 24/7.
+```
+
+Michi mirrors Tsumiki's spine on purpose (same stack, same self-hosted patterns) but is
+a **separate app** with its own identity, data, port, and service. They share nothing
+at runtime.
+
+## Requirements
+
+- **Node ≥ 22.12** and npm. The server uses the built-in `node:sqlite`
+  (run with `--experimental-sqlite`); the client uses Vite 8. No database server or
+  native build step required.
+
+## Quick start
+
+With [`make`](./Makefile):
+
+```bash
+make install   # install client + server dependencies
+make dev       # run backend (:4001) and frontend (:5174) together
+```
+
+Then open http://localhost:5174 (the dev frontend proxies `/api` to the backend).
+
+## Production (on the mini PC, alongside Tsumiki)
+
+Build the client once; the server then serves it from `/`:
+
+```bash
+make start        # builds the client, then serves everything from :4001
+```
+
+Open `http://<mini-pc-ip>:4001`. Tsumiki stays on `:4000`; Michi takes `:4001`, so the
+two run side by side on the same box without colliding. Configuration via environment:
+
+| Variable   | Default                | Purpose                        |
+| ---------- | ---------------------- | ------------------------------ |
+| `PORT`     | `4001`                 | port to listen on              |
+| `HOST`     | `0.0.0.0`              | bind address (LAN / Tailscale) |
+| `MICHI_DB` | `server/data/michi.db` | SQLite database file path      |
+
+Michi makes **no outbound network calls** — everything is local.
+
+## Reach it from your phone (Tailscale) + install as an app
+
+Same as Tsumiki: install Tailscale on the mini PC and your phone, then open
+`http://<mini-pc-tailscale-ip>:4001` (or `http://minipc:4001` with MagicDNS). In Safari
+/ Chrome, **Share → Add to Home Screen** to install the PWA — it launches fullscreen
+with the Michi icon.
+
+## Back up your data
+
+The whole database is one file, so a copy is a full backup:
+
+```bash
+make backup       # → backups/michi-YYYY-MM-DD.db
+```
+
+Automate it nightly with cron (same pattern as Tsumiki):
+
+```cron
+0 2 * * *  cd ~/michi && make backup
+```
+
+## Testing
+
+```bash
+make test         # server engine/db tests + client lib tests
+```
+
+## API
+
+| Method | Path            | Purpose                                             |
+| ------ | --------------- | --------------------------------------------------- |
+| GET    | `/api/health`   | liveness check                                      |
+| GET    | `/api/state`    | full unified model                                  |
+| PUT    | `/api/state`    | replace the full model (the client's "save")        |
+| POST   | `/api/tasks`    | append a single task (lean write)                   |
+| POST   | `/api/complete` | toggle a task/step done (`{kind,id,done}`)          |
+| GET    | `/api/today`    | the focused daily queue (`?day=`, `?limit=`)        |
+| GET    | `/api/momentum` | streak, heatmap, roadmap/project progress (`?day=`) |
+| GET    | `/api/export`   | download the full model as JSON                     |
+| POST   | `/api/import`   | replace the model from an exported JSON             |
+| POST   | `/api/reset`    | wipe everything and start fresh                     |
+
+## License
+
+All rights reserved. © 2026 Anthony. This is a personal project published for
+reference; no license to use, copy, modify, or distribute is granted.
