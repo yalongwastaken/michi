@@ -22,6 +22,16 @@ import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
 import { aiConfig, refinePlan } from "./suggest.js";
 
+// a valid calendar day string, else server-local today — so a malformed ?day= can't
+// reach the date math in momentum()/planner and 500 the request
+function resolveDay(q) {
+  return typeof q === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(q) &&
+    !Number.isNaN(Date.parse(`${q}T12:00:00Z`))
+    ? q
+    : dayKey();
+}
+
 // shared planner options from settings (+ today's "not today" skips). `day` concrete.
 function planOpts(state, day, overrides = {}) {
   const s = state.settings || {};
@@ -126,17 +136,26 @@ app.post("/api/complete", (req, res) => {
   }
 });
 
+// a positive, sane minutes budget, else undefined (planner falls back to settings)
+function resolveBudget(q) {
+  const b = Number(q);
+  return Number.isFinite(b) && b > 0 && b <= 1440 ? { budgetMin: b } : {};
+}
+
 // the daily queue — "what should I work on today?"
 app.get("/api/today", (req, res) => {
-  const today = typeof req.query.day === "string" ? req.query.day : undefined;
   const limit = Number(req.query.limit);
-  res.json(buildToday(getState(), { today, limit: Number.isFinite(limit) ? limit : undefined }));
+  res.json(
+    buildToday(getState(), {
+      today: resolveDay(req.query.day),
+      limit: Number.isFinite(limit) ? limit : undefined,
+    }),
+  );
 });
 
 // momentum: streak, heatmap, roadmap/project progress
 app.get("/api/momentum", (req, res) => {
-  const today = typeof req.query.day === "string" ? req.query.day : undefined;
-  res.json(momentum(getState(), { today }));
+  res.json(momentum(getState(), { today: resolveDay(req.query.day) }));
 });
 
 // the planner — a doable day from the whole picture. Deterministic by default;
@@ -145,9 +164,8 @@ app.get("/api/momentum", (req, res) => {
 app.get("/api/plan", async (req, res, next) => {
   try {
     const state = getState();
-    const day = typeof req.query.day === "string" ? req.query.day : dayKey();
-    const qBudget = Number(req.query.budget);
-    const o = planOpts(state, day, Number.isFinite(qBudget) ? { budgetMin: qBudget } : {});
+    const day = resolveDay(req.query.day);
+    const o = planOpts(state, day, resolveBudget(req.query.budget));
     const plan = planDay(state, o);
     const wantAi = req.query.ai === "1" || req.query.ai === "true";
     res.json(wantAi ? await refinePlan(state, plan, { ...o, budgetMin: plan.budgetMin }) : plan);
@@ -157,25 +175,31 @@ app.get("/api/plan", async (req, res, next) => {
 });
 
 // one round-trip for the whole Today screen: queue + momentum + plan + nudges
-app.get("/api/dashboard", (req, res) => {
-  const state = getState();
-  const day = typeof req.query.day === "string" ? req.query.day : dayKey();
-  res.json({
-    today: buildToday(state, { today: day }),
-    momentum: momentum(state, { today: day }),
-    plan: planDay(state, planOpts(state, day)),
-    insights: insights(state, { today: day }),
-  });
+app.get("/api/dashboard", (req, res, next) => {
+  try {
+    const state = getState();
+    const day = resolveDay(req.query.day);
+    res.json({
+      today: buildToday(state, { today: day }),
+      momentum: momentum(state, { today: day }),
+      plan: planDay(state, planOpts(state, day)),
+      insights: insights(state, { today: day }),
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // "not today" — push a plan item off the day (or restore it with {on:false})
 app.post("/api/plan/skip", (req, res) => {
-  const { kind, id, day, on = true } = req.body || {};
+  const { kind, id, on = true } = req.body || {};
   if ((kind !== "task" && kind !== "step") || !id) {
     return res.status(400).json({ error: "need kind ('task'|'step') and id" });
   }
-  setPlanSkip(day || dayKey(), kind, id, !!on);
-  res.json(planDay(getState(), planOpts(getState(), day || dayKey())));
+  const day = resolveDay(req.body?.day);
+  setPlanSkip(day, kind, id, !!on);
+  const state = getState();
+  res.json(planDay(state, planOpts(state, day)));
 });
 
 // wipe everything and start fresh (the Settings "danger zone")

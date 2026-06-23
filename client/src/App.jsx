@@ -61,9 +61,17 @@ export default function App({ onTheme }) {
     return run;
   }, []);
 
+  // monotonic guard: derived-data responses can arrive out of order (a slow AI replan
+  // vs a quick dashboard refresh), so only the most recently *issued* request applies.
+  const derivedSeqRef = useRef(0);
+
   // one round-trip for the whole Today screen (queue + momentum + plan + nudges)
   const refreshDerived = useCallback(async () => {
+    const seq = ++derivedSeqRef.current;
     const d = await api.dashboard(day);
+    if (seq !== derivedSeqRef.current) {
+      return; // a newer request superseded this one
+    }
     setToday(d.today);
     setMomentum(d.momentum);
     setPlan(d.plan);
@@ -73,8 +81,12 @@ export default function App({ onTheme }) {
   // re-run the planner; {ai:true} asks the local model, {budget} overrides the budget
   const replan = useCallback(
     async ({ ai = false, budget } = {}) => {
+      const seq = ++derivedSeqRef.current;
       try {
-        setPlan(await api.plan(day, { ai, budget }));
+        const p = await api.plan(day, { ai, budget });
+        if (seq === derivedSeqRef.current) {
+          setPlan(p);
+        }
       } catch (e) {
         setError(e.message || "could not build a plan");
       }
@@ -85,8 +97,12 @@ export default function App({ onTheme }) {
   // push a plan item off today ("not today"), or restore it
   const skipPlanItem = useCallback(
     async (kind, id, on = true) => {
+      const seq = ++derivedSeqRef.current;
       try {
-        setPlan(await api.skipPlanItem(kind, id, day, on));
+        const p = await api.skipPlanItem(kind, id, day, on);
+        if (seq === derivedSeqRef.current) {
+          setPlan(p);
+        }
       } catch (e) {
         setError(e.message || "could not update the plan");
       }

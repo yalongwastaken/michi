@@ -145,15 +145,24 @@ export function planDay(state, opts = {}) {
     Number.isFinite(Number(r.stepMinutes)) && Number(r.stepMinutes) > 0
       ? Number(r.stepMinutes)
       : defaultStepMin;
+  // bucket milestones/steps once (O(n)) so we don't re-scan the global arrays per
+  // roadmap — keeps planning linear even with many large imported roadmaps
+  const msByRoadmap = new Map();
+  for (const m of milestones) {
+    (msByRoadmap.get(m.roadmapId) || msByRoadmap.set(m.roadmapId, []).get(m.roadmapId)).push(m);
+  }
+  const stepsByMs = new Map();
+  for (const s of steps) {
+    (stepsByMs.get(s.milestoneId) || stepsByMs.set(s.milestoneId, []).get(s.milestoneId)).push(s);
+  }
+
   const queues = new Map(); // roadmapId → { steps:[lines], meta:{ targetDate, perDay } }
   for (const r of roadmaps) {
-    const rms = milestones
-      .filter((m) => m.roadmapId === r.id)
-      .sort((a, b) => a.position - b.position);
+    const rms = (msByRoadmap.get(r.id) || []).slice().sort((a, b) => a.position - b.position);
     const q = [];
     for (const m of rms) {
-      for (const s of steps
-        .filter((x) => x.milestoneId === m.id && x.status !== "done" && !skipped("step", x.id))
+      for (const s of (stepsByMs.get(m.id) || [])
+        .filter((x) => x.status !== "done" && !skipped("step", x.id))
         .sort((a, b) => a.position - b.position)) {
         q.push(stepLine(s, m, r, "rotate", stepCost(r)));
       }

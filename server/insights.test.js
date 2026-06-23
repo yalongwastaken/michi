@@ -59,6 +59,34 @@ test("flags a neglected roadmap (untouched ≥ 7 days)", () => {
   assert.match(o.text, /hasn't moved in 13 days/);
 });
 
+test("flags deadline pressure when >1 step/day is needed", () => {
+  const s = state({
+    roadmaps: [{ id: "R", title: "Embedded", archived: false, targetDate: "2026-06-25" }],
+    milestones: [{ id: "m", roadmapId: "R", title: "M" }],
+    steps: [
+      { id: "s1", milestoneId: "m", status: "todo" },
+      { id: "s2", milestoneId: "m", status: "todo" },
+      { id: "s3", milestoneId: "m", status: "todo" },
+      { id: "s4", milestoneId: "m", status: "todo" },
+    ],
+  });
+  // today=06-23 → 3 days, 4 steps → ~2/day
+  const o = insights(s, { today: "2026-06-23" }).find((i) => i.kind === "deadline");
+  assert.ok(o);
+  assert.match(o.text, /3 days left, ~2\/day/);
+});
+
+test("flags a past-due roadmap", () => {
+  const s = state({
+    roadmaps: [{ id: "R", title: "Linux", archived: false, targetDate: "2026-06-01" }],
+    milestones: [{ id: "m", roadmapId: "R", title: "M" }],
+    steps: [{ id: "s1", milestoneId: "m", status: "todo" }],
+  });
+  const o = insights(s, { today: "2026-06-23" }).find((i) => i.kind === "deadline");
+  assert.ok(o);
+  assert.match(o.text, /past its finish date/);
+});
+
 test("doesn't nag about a brand-new roadmap", () => {
   const s = state({
     roadmaps: [{ id: "R", title: "New", archived: false, createdAt: "2026-06-22T00:00:00Z" }],

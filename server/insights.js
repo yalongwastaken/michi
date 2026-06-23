@@ -38,6 +38,14 @@ function lastActiveByRoadmap(state) {
 
 const NEGLECT_DAYS = 7;
 
+/** Days from `today` until `target` inclusive (≥1); negative-ish handled by caller. */
+function daysUntil(target, today) {
+  return (
+    Math.round((Date.parse(`${target}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) +
+    1
+  );
+}
+
 /**
  * Up to `limit` short nudges, most useful first: overdue → near-done → neglected.
  * @returns {Array<{kind:string, tone:"warn"|"good"|"info", text:string, roadmapId?:string}>}
@@ -58,6 +66,42 @@ export function insights(state, { today = dayKey(), limit = 3 } = {}) {
   }
 
   const progress = roadmapProgress(state).filter((r) => !r.archived && r.total > 0);
+  const byId = new Map((state.roadmaps || []).map((r) => [r.id, r]));
+
+  // deadline pressure: a roadmap with a finish-by date that needs >1 step/day, is due
+  // soon, or has slipped past — the most-pressured one first
+  const deadlines = [];
+  for (const r of progress) {
+    const rm = byId.get(r.id);
+    if (!rm?.targetDate || r.pct >= 100) {
+      continue;
+    }
+    const remaining = r.total - r.done;
+    const left = daysUntil(rm.targetDate, today); // ≤0 means past due
+    const perDay = Math.ceil(remaining / Math.max(1, left));
+    if (left <= 0) {
+      deadlines.push({
+        r,
+        text: `${r.title} is past its finish date — ${remaining} step${remaining > 1 ? "s" : ""} left.`,
+        sort: -left + 100,
+      });
+    } else if (perDay >= 2 || left <= 3) {
+      deadlines.push({
+        r,
+        text: `${r.title}: ${left} day${left > 1 ? "s" : ""} left, ~${perDay}/day to finish.`,
+        sort: perDay * 10 - left,
+      });
+    }
+  }
+  const worstDeadline = deadlines.sort((a, b) => b.sort - a.sort)[0];
+  if (worstDeadline) {
+    out.push({
+      kind: "deadline",
+      tone: "warn",
+      text: worstDeadline.text,
+      roadmapId: worstDeadline.r.id,
+    });
+  }
 
   // a roadmap almost finished — a nudge to close it out
   const near = progress.filter((r) => r.pct >= 80 && r.pct < 100).sort((a, b) => b.pct - a.pct)[0];

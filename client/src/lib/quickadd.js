@@ -48,13 +48,20 @@ export function parseQuickAdd(input, { today = todayKey() } = {}) {
   const strip = (re) => {
     text = text.replace(re, " ");
   };
+  const stripAt = (start, len) => {
+    text = `${text.slice(0, start)} ${text.slice(start + len)}`;
+  };
+  const validISO = (s) => {
+    const d = new Date(`${s}T12:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  };
 
-  // ── duration: "30m", "45 min", "2h", "1 hour" ──
-  const dur = text.match(/\b(\d+)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)\b/i);
+  // ── duration: "30m", "45 min", "2h", "1 hour" (digit-capped → no giant numbers) ──
+  const dur = text.match(/\b(\d{1,4})\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)\b/i);
   if (dur) {
     const n = Number(dur[1]);
     estMin = /^h/i.test(dur[2]) ? n * 60 : n;
-    strip(new RegExp(dur[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+    stripAt(dur.index, dur[0].length); // slice out, don't build a regex from input
   }
 
   // ── recurrence (check before single-day words) ──
@@ -72,8 +79,8 @@ export function parseQuickAdd(input, { today = todayKey() } = {}) {
   // ── due date ──
   if (recurrence == null) {
     const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-    const inDays = text.match(/\bin\s+(\d+)\s+days?\b/i);
-    if (isoMatch) {
+    const inDays = text.match(/\bin\s+(\d{1,4})\s+days?\b/i); // capped → no Date overflow
+    if (isoMatch && validISO(isoMatch[1])) {
       due = isoMatch[1];
       strip(/\b\d{4}-\d{2}-\d{2}\b/);
     } else if (/\b(today|tonight)\b/i.test(text)) {

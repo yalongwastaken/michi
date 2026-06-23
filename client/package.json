@@ -1,6 +1,6 @@
 {
   "name": "michi-client",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Personal learning-coach frontend (Vite + React thin client).",
@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:smoke": "node test/smoke.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",
@@ -21,6 +22,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.0",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.0",
+    "jsdom": "^25.0.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "vite": "^8.0.0"

@@ -56,8 +56,10 @@ test("validateTask rejects bad shapes", () => {
   assert.ok(db.validateTask({ id: "x" })); // no title
   assert.ok(db.validateTask({ id: "x", title: "t", status: "weird" }));
   assert.ok(db.validateTask({ id: "x", title: "t", due: "not-a-date" }));
+  assert.ok(db.validateTask({ id: "x", title: "t", due: "2024-02-30" })); // rollover date rejected
   assert.ok(db.validateTask({ id: "x", title: "t", recurrence: "monthly" }));
   assert.equal(db.validateTask({ id: "x", title: "t", recurrence: "daily" }), null);
+  assert.equal(db.validateTask({ id: "x", title: "t", due: "2026-06-23" }), null);
 });
 
 test("putState replaces the full model and round-trips a roadmap tree", () => {
