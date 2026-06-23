@@ -22,15 +22,13 @@ async function req(path, opts = {}) {
 }
 
 export const api = {
-  health: () => req("/api/health"),
   getState: () => req("/api/state"),
   putState: (state) => req("/api/state", { method: "PUT", body: JSON.stringify(state) }),
   addTask: (task) => req("/api/tasks", { method: "POST", body: JSON.stringify(task) }),
   complete: (kind, id, done = true) =>
     req("/api/complete", { method: "POST", body: JSON.stringify({ kind, id, done }) }),
-  today: (day) => req(`/api/today${day ? `?day=${day}` : ""}`),
-  momentum: (day) => req(`/api/momentum${day ? `?day=${day}` : ""}`),
   config: () => req("/api/config"),
+  // the Today screen pulls queue + momentum + plan + nudges + review in one round-trip
   dashboard: (day) => req(`/api/dashboard${day ? `?day=${day}` : ""}`),
   plan: (day, { ai = false, budget } = {}) => {
     const q = new URLSearchParams();

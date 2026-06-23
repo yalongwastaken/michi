@@ -1,4 +1,4 @@
-import { Flame, Trophy, CalendarCheck, Rocket, Snowflake } from "lucide-react";
+import { Flame, Trophy, CalendarCheck, Rocket, Snowflake, Check } from "lucide-react";
 import { Card, ProgressBar, EmptyState } from "../ui.jsx";
 import { shortDate } from "../lib/format.js";
 
@@ -69,6 +69,7 @@ export default function Momentum({ ctx }) {
     return null;
   }
   const { streak } = m;
+  const review = ctx.review;
   const activeRoadmaps = m.roadmaps.filter((r) => !r.archived && r.total > 0);
 
   return (
@@ -139,6 +140,37 @@ export default function Momentum({ ctx }) {
           more
         </div>
       </Card>
+
+      {review ? (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <CalendarCheck size={15} className="text-trail-600" /> This week
+            </h3>
+            <span className="text-xs text-slate-500">
+              {review.completed} done · {review.activeDays}/{review.days} active days
+            </span>
+          </div>
+          {review.finished.length ? (
+            <ul className="space-y-0.5 text-sm text-slate-600 dark:text-slate-300">
+              {review.finished.slice(0, 5).map((f, i) => (
+                <li key={i} className="flex items-center gap-1.5">
+                  <Check size={13} className="shrink-0 text-trail-500" />
+                  <span className="truncate">{f.title}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">Nothing finished yet this week.</p>
+          )}
+          {review.advanced.length ? (
+            <p className="mt-2 text-xs text-slate-500">Moved: {review.advanced.join(", ")}</p>
+          ) : null}
+          {review.slipped.length ? (
+            <p className="mt-1 text-xs text-rose-500">Slipped: {review.slipped.join(" · ")}</p>
+          ) : null}
+        </Card>
+      ) : null}
 
       <div>
         <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">

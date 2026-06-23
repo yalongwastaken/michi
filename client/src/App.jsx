@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Sun, Map, Hammer, Flame, Settings as SettingsIcon, AlertTriangle } from "lucide-react";
 import { api } from "./lib/api.js";
 import { todayKey } from "./lib/format.js";
+import { createQueue } from "./lib/queue.js";
 import Today from "./views/Today.jsx";
 import Roadmaps from "./views/Roadmaps.jsx";
 import Projects from "./views/Projects.jsx";
@@ -48,6 +49,7 @@ export default function App({ onTheme }) {
   const [momentum, setMomentum] = useState(null);
   const [plan, setPlan] = useState(null);
   const [nudges, setNudges] = useState([]);
+  const [review, setReview] = useState(null);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [tab, setTab] = useState("today");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -63,28 +65,9 @@ export default function App({ onTheme }) {
     setState(s);
   }, []);
 
-  // serialize every write: each job runs after the previous settles, so two quick
-  // edits can't race the optimistic-concurrency rev into a 409. A pending counter
-  // drives the global busy flag across the whole queue (no flicker between ops).
-  const queueRef = useRef(Promise.resolve());
-  const pendingRef = useRef(0);
-  const enqueue = useCallback((job) => {
-    pendingRef.current += 1;
-    setBusy(true);
-    const run = queueRef.current.then(job, job);
-    queueRef.current = run.then(
-      () => {},
-      () => {},
-    );
-    queueRef.current.finally(() => {
-      pendingRef.current -= 1;
-      if (pendingRef.current <= 0) {
-        pendingRef.current = 0;
-        setBusy(false);
-      }
-    });
-    return run;
-  }, []);
+  // serialize every write (see lib/queue.js) so two quick edits can't race the
+  // optimistic-concurrency rev into a 409; the busy flag spans the whole queue.
+  const enqueue = useRef(createQueue(setBusy)).current;
 
   // monotonic guard: derived-data responses can arrive out of order (a slow AI replan
   // vs a quick dashboard refresh), so only the most recently *issued* request applies.
@@ -101,6 +84,7 @@ export default function App({ onTheme }) {
     setMomentum(d.momentum);
     setPlan(d.plan);
     setNudges(d.insights || []);
+    setReview(d.review || null);
   }, [day]);
 
   // re-run the planner; {ai:true} asks the local model, {budget} overrides the budget
@@ -248,6 +232,7 @@ export default function App({ onTheme }) {
     momentum,
     plan,
     nudges,
+    review,
     aiEnabled,
     replan,
     skipPlanItem,

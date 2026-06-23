@@ -10,6 +10,7 @@
 // re-orders / re-selects from a known-good set.
 //
 // Enable with:  MICHI_LLM=1  (optionally MICHI_LLM_MODEL=…, MICHI_LLM_URL=…)
+import { localDay } from "./engine.js";
 
 /** Is the optional model layer turned on? */
 export function aiEnabled() {
@@ -40,7 +41,9 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
   };
 
   const tasks = state.tasks || [];
-  const isDoneToday = (t) => t.status === "done" && (t.doneAt || "").slice(0, 10) === today;
+  // bucket by local day (matches planner/engine) — a raw UTC slice would mis-file
+  // evening completions west of UTC and re-offer a done task to the model
+  const isDoneToday = (t) => t.status === "done" && localDay(t.doneAt) === today;
   for (const t of tasks) {
     if (isDoneToday(t) || (t.status === "done" && !t.recurrence)) {
       continue;

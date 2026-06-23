@@ -30,6 +30,7 @@ import {
 import { roadmapTree, nextPosition } from "../lib/tree.js";
 import { parseRoadmap } from "../lib/parse.js";
 import { shortDate } from "../lib/format.js";
+import { focusMainHeading } from "../lib/a11y.js";
 import { uid } from "../lib/uid.js";
 
 const STEP_MINUTE_OPTS = [
@@ -247,13 +248,15 @@ function RoadmapCard({ rm, ctx, onEdit }) {
       }
     });
 
-  const remove = () =>
-    save((s) => {
+  const remove = async () => {
+    await save((s) => {
       s.roadmaps = s.roadmaps.filter((x) => x.id !== rm.id);
       const msIds = s.milestones.filter((m) => m.roadmapId === rm.id).map((m) => m.id);
       s.milestones = s.milestones.filter((m) => m.roadmapId !== rm.id);
       s.steps = s.steps.filter((x) => !msIds.includes(x.milestoneId));
     });
+    focusMainHeading(); // the card just vanished — don't drop focus to <body>
+  };
 
   return (
     <Card className={`overflow-hidden ${rm.archived ? "opacity-60" : ""}`}>

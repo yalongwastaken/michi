@@ -3,6 +3,34 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.7.0] — 2026-06-23
+
+### Added
+
+- **Weekly review.** Momentum now has a "This week" card: what you finished, which
+  roadmaps moved, and what slipped (overdue + past-due roadmaps), over the last 7 days.
+- **Focus management.** Deleting a roadmap or project moves focus to the view heading
+  instead of dropping it to `<body>`.
+
+### Changed
+
+- The write-queue moved into `lib/queue.js` and is covered by a concurrency stress
+  test (50 jobs never overlap, busy toggles correctly, a failing job can't poison the
+  chain). Contrast bumped on form hints, empty-state, and task metadata.
+
+### Fixed (from a whole-repo audit)
+
+- The optional model's "done today" check used a UTC date slice; now uses the local
+  day like the rest of the server (no mis-filed evening completions west of UTC).
+- `POST /api/plan/skip` and `/api/reset` now log + return clean errors like the other
+  write routes. Dropped three unused client API wrappers.
+
+### Tests
+
+- New: weekly-review unit tests, write-queue concurrency stress test, a PWA
+  installability test (manifest fields + real icon files + head tags + service worker),
+  and the render smoke now asserts every control has an accessible name.
+
 ## [0.6.0] — 2026-06-23
 
 ### Added

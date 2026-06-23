@@ -90,7 +90,7 @@ function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
         >
           {item.title}
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           {isStep ? (
             <span className="inline-flex items-center gap-1">
               <BookOpen size={12} />

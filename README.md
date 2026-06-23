@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.6.0** · self-hosted · single-user · no cloud · AI is optional & fully local
+**v0.7.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -159,7 +159,7 @@ make test         # server engine/db tests + client lib tests
 | GET    | `/api/plan`      | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)   |
 | POST   | `/api/plan/skip` | push a plan item to tomorrow (`{kind,id,day,on}`)              |
 | GET    | `/api/momentum`  | streak, heatmap, roadmap/project progress (`?day=`)            |
-| GET    | `/api/dashboard` | today + momentum + plan + insights in one round-trip (`?day=`) |
+| GET    | `/api/dashboard` | today + momentum + plan + insights + weekly review, one round-trip (`?day=`) |
 | GET    | `/api/digest`    | plain-text (`?format=text`) or JSON summary of the day         |
 | GET    | `/api/config`    | client capability probe (whether the local model is on)        |
 | GET    | `/api/export`    | download the full model as JSON                                |

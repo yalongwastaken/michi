@@ -20,6 +20,7 @@ import {
 import { buildToday, momentum, dayKey } from "./engine.js";
 import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
+import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
 
@@ -185,6 +186,7 @@ app.get("/api/dashboard", (req, res, next) => {
       momentum: momentum(state, { today: day }),
       plan: planDay(state, planOpts(state, day)),
       insights: insights(state, { today: day }),
+      review: weeklyReview(state, { today: day }),
     });
   } catch (e) {
     next(e);
@@ -213,14 +215,26 @@ app.post("/api/plan/skip", (req, res) => {
   if ((kind !== "task" && kind !== "step") || !id) {
     return res.status(400).json({ error: "need kind ('task'|'step') and id" });
   }
-  const day = resolveDay(req.body?.day);
-  setPlanSkip(day, kind, id, !!on);
-  const state = getState();
-  res.json(planDay(state, planOpts(state, day)));
+  try {
+    const day = resolveDay(req.body?.day);
+    setPlanSkip(day, kind, id, !!on);
+    const state = getState();
+    res.json(planDay(state, planOpts(state, day)));
+  } catch (e) {
+    console.warn("POST /api/plan/skip failed:", e.message);
+    res.status(400).json({ error: "could not update the plan" });
+  }
 });
 
 // wipe everything and start fresh (the Settings "danger zone")
-app.post("/api/reset", (_req, res) => res.json(resetAll()));
+app.post("/api/reset", (_req, res) => {
+  try {
+    res.json(resetAll());
+  } catch (e) {
+    console.warn("POST /api/reset failed:", e.message);
+    res.status(500).json({ error: "reset failed" });
+  }
+});
 
 // data export (download the whole dataset) + import (validated full replace)
 app.get("/api/export", (_req, res) => {
