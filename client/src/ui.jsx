@@ -39,7 +39,7 @@ export function IconButton({ label, className = "", children, ...rest }) {
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 transition ${className}`}
+      className={`inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100 transition ${className}`}
       {...rest}
     >
       {children}
@@ -125,9 +125,13 @@ export function Modal({ title, onClose, children, footer }) {
         first.focus();
       }
     };
+    const prev = document.activeElement; // restore focus to the trigger on close
     document.addEventListener("keydown", onKey);
     ref.current?.focus();
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      prev?.focus?.();
+    };
   }, [onClose]);
   return (
     <div

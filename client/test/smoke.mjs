@@ -255,6 +255,35 @@ try {
   fails.push(`quick-add: ${e.message}`);
 }
 
+// lightweight accessibility scan: every control needs an accessible name
+try {
+  const accessibleName = (el) =>
+    (el.getAttribute("aria-label") || el.textContent || el.getAttribute("title") || "").trim();
+  const buttons = [...document.querySelectorAll("button")];
+  const namelessButtons = buttons.filter((b) => !accessibleName(b));
+  if (namelessButtons.length) {
+    fails.push(`a11y: ${namelessButtons.length} button(s) without an accessible name`);
+  }
+  const fields = [...document.querySelectorAll("input, select, textarea")];
+  const namelessFields = fields.filter((f) => {
+    if (f.getAttribute("aria-label") || f.getAttribute("placeholder")) {
+      return false;
+    }
+    const id = f.getAttribute("id");
+    const labelled = id && document.querySelector(`label[for="${id}"]`);
+    const wrapped = f.closest("label");
+    return !labelled && !wrapped;
+  });
+  if (namelessFields.length) {
+    fails.push(`a11y: ${namelessFields.length} form field(s) without a label`);
+  }
+  if (!namelessButtons.length && !namelessFields.length) {
+    console.log(`  ✓ a11y: ${buttons.length} buttons + ${fields.length} fields all named`);
+  }
+} catch (e) {
+  fails.push(`a11y scan: ${e.message}`);
+}
+
 if (errors.length) {
   fails.push(...errors.map((m) => `window error: ${m}`));
 }

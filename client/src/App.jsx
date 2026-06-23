@@ -17,6 +17,31 @@ const TABS = [
   { id: "momentum", label: "Momentum", icon: Flame },
 ];
 
+// optimistic helpers: flip an item's status locally so the checkbox responds instantly,
+// before the server round-trip. The authoritative dashboard refresh reconciles after.
+const flip = (it, kind, id, done) =>
+  it.kind === kind && it.id === id ? { ...it, status: done ? "done" : "todo" } : it;
+
+function patchPlan(plan, kind, id, done) {
+  if (!plan) {
+    return plan;
+  }
+  return { ...plan, items: plan.items.map((it) => flip(it, kind, id, done)) };
+}
+
+function patchToday(today, kind, id, done) {
+  if (!today) {
+    return today;
+  }
+  const map = (arr) => (arr || []).map((it) => flip(it, kind, id, done));
+  return {
+    ...today,
+    overdue: map(today.overdue),
+    dueToday: map(today.dueToday),
+    suggested: map(today.suggested),
+  };
+}
+
 export default function App({ onTheme }) {
   const [state, setState] = useState(null);
   const [today, setToday] = useState(null);
@@ -159,19 +184,24 @@ export default function App({ onTheme }) {
     [enqueue, applyState, onTheme, refreshDerived, load],
   );
 
-  // lean completion toggle (the hot path) — still serialized for correct ordering
+  // lean completion toggle (the hot path) — serialized for ordering, optimistic for feel
   const complete = useCallback(
-    (kind, id, done) =>
-      enqueue(async () => {
+    (kind, id, done) => {
+      // reflect immediately; the authoritative refresh inside the job reconciles
+      setPlan((p) => patchPlan(p, kind, id, done));
+      setToday((t) => patchToday(t, kind, id, done));
+      return enqueue(async () => {
         try {
           applyState(await api.complete(kind, id, done));
           await refreshDerived();
           return true;
         } catch (e) {
           setError(e.message || "could not update");
+          await refreshDerived(); // roll the optimistic flip back to server truth
           return false;
         }
-      }),
+      });
+    },
     [enqueue, applyState, refreshDerived],
   );
 
@@ -251,6 +281,7 @@ export default function App({ onTheme }) {
                     : "bg-iris-500/15 text-iris-600 dark:text-iris-300"
                 }`}
                 title={momentum.streak.atRisk ? "do something today to keep it!" : "current streak"}
+                aria-label={`${momentum.streak.current} day streak${momentum.streak.atRisk ? ", at risk" : ""}`}
               >
                 <Flame size={15} />
                 {momentum.streak.current}
@@ -268,7 +299,10 @@ export default function App({ onTheme }) {
       </header>
 
       {error ? (
-        <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40">
+        <div
+          role="alert"
+          className="mx-4 mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40"
+        >
           <AlertTriangle size={15} /> {error}
         </div>
       ) : null}
@@ -280,7 +314,10 @@ export default function App({ onTheme }) {
         {tab === "momentum" && <Momentum ctx={ctx} />}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+      <nav
+        aria-label="Primary"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      >
         <div className="mx-auto flex max-w-2xl">
           {TABS.map(({ id, label, icon: Icon }) => {
             const active = tab === id;
@@ -290,14 +327,20 @@ export default function App({ onTheme }) {
               <button
                 key={id}
                 onClick={() => setTab(id)}
+                aria-current={active ? "page" : undefined}
                 className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition ${
-                  active ? "text-trail-600 dark:text-trail-400" : "text-slate-400"
+                  active
+                    ? "text-trail-600 dark:text-trail-400"
+                    : "text-slate-500 dark:text-slate-400"
                 }`}
               >
                 <Icon size={20} className={active ? "pop" : ""} />
                 {label}
                 {badge > 0 ? (
-                  <span className="absolute right-[26%] top-1.5 min-w-4 rounded-full bg-trail-500 px-1 text-[10px] font-bold leading-4 text-white">
+                  <span
+                    aria-label={`${badge} needing attention`}
+                    className="absolute right-[26%] top-1.5 min-w-4 rounded-full bg-trail-500 px-1 text-[10px] font-bold leading-4 text-white"
+                  >
                     {badge}
                   </span>
                 ) : null}

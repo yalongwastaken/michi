@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.5.0** · self-hosted · single-user · no cloud · AI is optional & fully local
+**v0.6.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -108,6 +108,17 @@ Your whole dataset is only kilobytes, so it fits in any model's context window i
 — even a small 1–3B model sees everything at once. Bigger models just reason a bit
 better; the deterministic planner is always the safety net.
 
+## Optional: a morning digest
+
+`GET /api/digest?format=text` returns a plain-text summary of the day (streak + the
+planned items + one nudge). A cron job on the mini PC can pipe it to any local notifier
+— no cloud, no outbound calls from Michi:
+
+```cron
+# 7am: post today's plan to an ntfy topic on your tailnet (or pipe to notify-send, etc.)
+0 7 * * *  curl -s "http://localhost:4001/api/digest?format=text" | curl -s -d @- ntfy.local/michi
+```
+
 ## Reach it from your phone (Tailscale) + install as an app
 
 Same as Tsumiki: install Tailscale on the mini PC and your phone, then open
@@ -149,6 +160,7 @@ make test         # server engine/db tests + client lib tests
 | POST   | `/api/plan/skip` | push a plan item to tomorrow (`{kind,id,day,on}`)              |
 | GET    | `/api/momentum`  | streak, heatmap, roadmap/project progress (`?day=`)            |
 | GET    | `/api/dashboard` | today + momentum + plan + insights in one round-trip (`?day=`) |
+| GET    | `/api/digest`    | plain-text (`?format=text`) or JSON summary of the day         |
 | GET    | `/api/config`    | client capability probe (whether the local model is on)        |
 | GET    | `/api/export`    | download the full model as JSON                                |
 | POST   | `/api/import`    | replace the model from an exported JSON                        |
