@@ -93,6 +93,30 @@ export default function Settings({ ctx, onClose }) {
         </Select>
       </Field>
 
+      <Field
+        label="Daily time budget"
+        hint="How much time the planner fills when it builds your day."
+      >
+        <Select
+          value={settings.dailyMinutes ?? 60}
+          onChange={(e) => setSetting({ dailyMinutes: Number(e.target.value) })}
+        >
+          {[
+            [15, "15 min"],
+            [30, "30 min"],
+            [45, "45 min"],
+            [60, "1 hour"],
+            [90, "1.5 hours"],
+            [120, "2 hours"],
+            [180, "3 hours"],
+          ].map(([n, label]) => (
+            <option key={n} value={n}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
       <Field label="Streak freezes" hint="Missed days the streak can bridge before it breaks.">
         <Select
           value={settings.streakFreezes ?? 2}

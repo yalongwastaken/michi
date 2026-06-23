@@ -30,6 +30,18 @@ export const api = {
     req("/api/complete", { method: "POST", body: JSON.stringify({ kind, id, done }) }),
   today: (day) => req(`/api/today${day ? `?day=${day}` : ""}`),
   momentum: (day) => req(`/api/momentum${day ? `?day=${day}` : ""}`),
+  config: () => req("/api/config"),
+  plan: (day, { ai = false } = {}) => {
+    const q = new URLSearchParams();
+    if (day) {
+      q.set("day", day);
+    }
+    if (ai) {
+      q.set("ai", "1");
+    }
+    const qs = q.toString();
+    return req(`/api/plan${qs ? `?${qs}` : ""}`);
+  },
   reset: () => req("/api/reset", { method: "POST" }),
   importState: (state) => req("/api/import", { method: "POST", body: JSON.stringify(state) }),
 };

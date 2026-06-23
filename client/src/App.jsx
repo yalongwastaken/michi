@@ -21,6 +21,8 @@ export default function App({ onTheme }) {
   const [state, setState] = useState(null);
   const [today, setToday] = useState(null);
   const [momentum, setMomentum] = useState(null);
+  const [plan, setPlan] = useState(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [tab, setTab] = useState("today");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -59,15 +61,32 @@ export default function App({ onTheme }) {
   }, []);
 
   const refreshDerived = useCallback(async () => {
-    const [t, m] = await Promise.all([api.today(day), api.momentum(day)]);
+    const [t, m, p] = await Promise.all([api.today(day), api.momentum(day), api.plan(day)]);
     setToday(t);
     setMomentum(m);
+    setPlan(p);
   }, [day]);
+
+  // re-run the planner; pass {ai:true} to ask the local model to refine it
+  const replan = useCallback(
+    async ({ ai = false } = {}) => {
+      try {
+        setPlan(await api.plan(day, { ai }));
+      } catch (e) {
+        setError(e.message || "could not build a plan");
+      }
+    },
+    [day],
+  );
 
   const load = useCallback(async () => {
     try {
-      const s = await api.getState();
+      const [s, cfg] = await Promise.all([
+        api.getState(),
+        api.config().catch(() => ({ ai: false })),
+      ]);
       applyState(s);
+      setAiEnabled(!!cfg.ai);
       onTheme?.(s.settings?.theme || "system");
       await refreshDerived();
       setError(null);
@@ -162,7 +181,20 @@ export default function App({ onTheme }) {
     return <Onboarding save={save} busy={busy} />;
   }
 
-  const ctx = { state, today, momentum, day, save, complete, addTask, refresh: load, busy };
+  const ctx = {
+    state,
+    today,
+    momentum,
+    plan,
+    aiEnabled,
+    replan,
+    day,
+    save,
+    complete,
+    addTask,
+    refresh: load,
+    busy,
+  };
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col">

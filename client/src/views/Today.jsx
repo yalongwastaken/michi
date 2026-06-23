@@ -10,11 +10,32 @@ import {
   Repeat,
   Pencil,
   SlidersHorizontal,
+  Timer,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-import { Card, Button, Input, EmptyState, Badge, IconButton } from "../ui.jsx";
+import { Card, Button, Input, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
 import TaskModal from "./TaskModal.jsx";
+
+// chips that explain why an item is in today's plan
+const REASON = {
+  overdue: { label: "overdue", cls: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
+  due: { label: "due", cls: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
+  continue: {
+    label: "continue",
+    cls: "bg-iris-50 text-iris-600 dark:bg-slate-800 dark:text-iris-300",
+  },
+  rotate: {
+    label: "next up",
+    cls: "bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300",
+  },
+  streak: {
+    label: "keep streak",
+    cls: "bg-iris-50 text-iris-600 dark:bg-slate-800 dark:text-iris-300",
+  },
+};
 
 function greeting() {
   const h = new Date().getHours();
@@ -30,9 +51,12 @@ function greeting() {
   return "Good evening";
 }
 
-function Row({ item, onToggle, busy, onEdit }) {
+function Row({ item, onToggle, busy, onEdit, showReason }) {
   const isStep = item.kind === "step";
   const done = item.status === "done";
+  const reason = showReason
+    ? REASON[item.reason === "continue" || item.status === "doing" ? "continue" : item.reason]
+    : null;
   return (
     <div className="group flex items-start gap-3 px-4 py-3">
       <button
@@ -88,6 +112,7 @@ function Row({ item, onToggle, busy, onEdit }) {
               <Clock size={11} /> {minutes(item.estMin)}
             </span>
           ) : null}
+          {reason ? <Badge className={reason.cls}>{reason.label}</Badge> : null}
         </div>
       </div>
       {onEdit && !isStep ? (
@@ -129,10 +154,96 @@ function Section({ title, icon: Icon, items, onToggle, busy, onEdit, tint = "tex
   );
 }
 
+const BUDGETS = [30, 60, 90, 120];
+
+function PlanCard({ ctx, onEdit }) {
+  const { plan, complete, save, replan, aiEnabled, busy } = ctx;
+  const [thinking, setThinking] = useState(false);
+  if (!plan) {
+    return null;
+  }
+  const budget = ctx.state.settings?.dailyMinutes ?? 60;
+  const setBudget = (n) => save((s) => (s.settings.dailyMinutes = n));
+  const smarter = async () => {
+    setThinking(true);
+    await replan({ ai: true });
+    setThinking(false);
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="trail-gradient flex items-center justify-between gap-2 px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
+            <Sparkles size={16} className="text-iris-500" /> Your day
+            {plan.source === "ai" ? (
+              <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">AI</Badge>
+            ) : null}
+          </h3>
+          <p className="mt-0.5 truncate text-xs text-slate-500">{plan.why}</p>
+        </div>
+        {aiEnabled ? (
+          <Button
+            variant="subtle"
+            disabled={busy || thinking}
+            onClick={smarter}
+            className="shrink-0 !py-1.5 text-xs"
+          >
+            <Sparkles size={14} /> {thinking ? "Thinking…" : "Smarter plan"}
+          </Button>
+        ) : null}
+      </div>
+
+      {plan.items.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-slate-400">
+          Nothing to plan yet — add a task or line up some roadmap steps.
+        </p>
+      ) : (
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {plan.items.map((it) => (
+            <Row
+              key={`${it.kind}_${it.id}`}
+              item={it}
+              onToggle={complete}
+              busy={busy}
+              onEdit={onEdit}
+              showReason
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
+        <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+          <Timer size={13} /> ~{plan.plannedMin} min
+          {plan.overflow ? <span className="text-rose-500"> (over budget)</span> : null}
+        </span>
+        <div className="flex items-center gap-1">
+          {BUDGETS.map((n) => (
+            <button
+              key={n}
+              disabled={busy}
+              onClick={() => setBudget(n)}
+              className={`rounded-lg px-2 py-1 text-xs font-medium transition ${
+                budget === n
+                  ? "bg-trail-600 text-white"
+                  : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              {n >= 60 ? `${n / 60}h` : `${n}m`}
+            </button>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function Today({ ctx }) {
   const { today, momentum, complete, addTask, busy, state } = ctx;
   const [text, setText] = useState("");
   const [showDone, setShowDone] = useState(false);
+  const [showBrowse, setShowBrowse] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [editTask, setEditTask] = useState(null);
 
@@ -158,7 +269,7 @@ export default function Today({ ctx }) {
 
   const goal = momentum?.dailyGoal ?? 3;
   const did = momentum?.todayCount ?? 0;
-  const empty = !today.overdue.length && !today.dueToday.length && !today.suggested.length;
+  const browseCount = today.overdue.length + today.dueToday.length + today.suggested.length;
 
   return (
     <div className="space-y-5">
@@ -172,7 +283,7 @@ export default function Today({ ctx }) {
             <span className="text-trail-600">Goal met — {did} done today. Keep rolling.</span>
           ) : (
             <>
-              You&apos;ve done {did} of {goal} today. Pick something below.
+              You&apos;ve done {did} of {goal} today. Here&apos;s a doable plan.
             </>
           )}
         </p>
@@ -208,39 +319,48 @@ export default function Today({ ctx }) {
         </Button>
       </form>
 
-      {empty ? (
-        <EmptyState icon={Sparkles} title="Your path is clear for today">
-          Add a task above, or open Roadmaps to line up your next steps.
-        </EmptyState>
-      ) : (
-        <div className="space-y-4">
-          <Section
-            title="Overdue"
-            icon={CircleDot}
-            items={today.overdue}
-            onToggle={complete}
-            busy={busy}
-            onEdit={openEdit}
-            tint="text-rose-500"
-          />
-          <Section
-            title="Due today"
-            icon={CircleDot}
-            items={today.dueToday}
-            onToggle={complete}
-            busy={busy}
-            onEdit={openEdit}
-          />
-          <Section
-            title="Suggested next steps"
-            icon={Sparkles}
-            items={today.suggested}
-            onToggle={complete}
-            busy={busy}
-            tint="text-trail-600"
-          />
+      <PlanCard ctx={ctx} onEdit={openEdit} />
+
+      {browseCount > 0 ? (
+        <div>
+          <button
+            onClick={() => setShowBrowse((v) => !v)}
+            className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
+            {showBrowse ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Browse everything
+            · {browseCount}
+          </button>
+          {showBrowse ? (
+            <div className="mt-2 space-y-4">
+              <Section
+                title="Overdue"
+                icon={CircleDot}
+                items={today.overdue}
+                onToggle={complete}
+                busy={busy}
+                onEdit={openEdit}
+                tint="text-rose-500"
+              />
+              <Section
+                title="Due today"
+                icon={CircleDot}
+                items={today.dueToday}
+                onToggle={complete}
+                busy={busy}
+                onEdit={openEdit}
+              />
+              <Section
+                title="Suggested next steps"
+                icon={Sparkles}
+                items={today.suggested}
+                onToggle={complete}
+                busy={busy}
+                tint="text-trail-600"
+              />
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {today.doneToday?.length ? (
         <div>

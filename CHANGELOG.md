@@ -3,6 +3,31 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.3.0] — 2026-06-23
+
+Michi starts deciding _for_ you. Today now leads with a planned day instead of a raw
+list you have to triage yourself.
+
+### Added
+
+- **Day planner.** A holistic, deterministic engine builds a doable day from the whole
+  picture: obligations first (overdue/due), then continuing what's already in progress,
+  then rotating across roadmaps so neglected paths resurface — all fitted to a daily
+  time budget, with streak protection so it never hands back an empty day. One-line
+  rationale ("2 due + 3 steps across 3 roadmaps — ~75 of 90 min"). New `GET /api/plan`.
+- **"Your day" on Today.** Leads the screen with the plan (each item tagged why), a
+  quick time-budget control (30m/1h/1.5h/2h), and a collapsible "Browse everything" for
+  the full buckets. Daily time budget is also a setting.
+- **Optional local model (off by default).** Point Michi at a local Ollama model
+  (`MICHI_LLM=1`) and a "✨ Smarter plan" button lets it re-pick the day from a
+  validated menu, with the deterministic planner as a guaranteed fallback. Fully
+  local — a `localhost` call, no cloud. New `GET /api/config`; `GET /api/plan?ai=1`.
+
+### Changed
+
+- The README tagline now reads "AI is optional & fully local" (the product still ships
+  with no AI on by default).
+
 ## [0.2.0] — 2026-06-23
 
 Feature work toward 1.0: import, richer tasks, and editing polish.
