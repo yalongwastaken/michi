@@ -2,7 +2,7 @@
 # Requires Node >= 22.12 and npm. Run `make` or `make help` for the list.
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev server client build start test test-server test-client format lint clean distclean backup
+.PHONY: help install dev server client build start test test-server test-client test-smoke format lint clean distclean backup
 
 ## help: list the available targets
 help:
@@ -39,16 +39,20 @@ build:
 start: build
 	cd server && npm start
 
-## test: run all unit tests (server + client)
-test: test-server test-client
+## test: run all unit tests + the render smoke (server + client)
+test: test-server test-client test-smoke
 
-## test-server: run the engine / db unit tests
+## test-server: run the engine / db / planner / insights / suggest unit tests
 test-server:
 	cd server && npm test
 
 ## test-client: run the client lib unit tests
 test-client:
 	cd client && npm test
+
+## test-smoke: headless render walk-through of the whole UI
+test-smoke:
+	cd client && npm run test:smoke
 
 ## format: auto-format the whole repo with Prettier
 format:
@@ -58,11 +62,12 @@ format:
 lint:
 	npm run lint
 
-## backup: copy the SQLite database into ./backups (timestamped)
+## backup: copy the SQLite database into ./backups (timestamped, keeps last 14)
 backup:
 	@mkdir -p backups
 	cp server/data/michi.db backups/michi-$$(date +%F).db
-	@echo "backed up → backups/michi-$$(date +%F).db"
+	@ls -1t backups/michi-*.db 2>/dev/null | tail -n +15 | xargs -r rm -f
+	@echo "backed up → backups/michi-$$(date +%F).db (keeping the 14 most recent)"
 
 ## clean: remove build output and temp files (keeps node_modules + data)
 clean:

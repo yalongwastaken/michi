@@ -3,6 +3,33 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.5.0] — 2026-06-23
+
+### Added
+
+- **Deadline-aware nudges.** Insights now flag roadmaps under time pressure —
+  "Embedded: 3 days left, ~2/day to finish" or "past its finish date."
+- **Render smoke test.** A headless harness (`make test-smoke`) mounts the real app
+  in jsdom, walks every tab, opens Settings, and exercises quick-add — catching
+  blank-screen/render regressions a build can't. `make test` now runs it too.
+
+### Changed
+
+- **Backups rotate.** `make backup` keeps the 14 most recent snapshots.
+
+### Fixed (from an intensive audit)
+
+- A malformed `?day=` no longer 500s `/api/dashboard` and `/api/momentum` — date
+  params are validated at the route boundary, and `?budget=` is clamped to a sane
+  range.
+- The natural-language quick-add no longer throws on absurd input ("in 999999999
+  days", a 100k-digit duration); date/number tokens are bounds-checked, and invalid
+  calendar dates (e.g. `2024-02-30`) are rejected by the server.
+- Plan refreshes are sequenced, so a slow "Smarter plan" can't clobber a newer plan
+  (out-of-order responses are discarded).
+- The planner and Today queue bucket steps once (O(n)) instead of re-scanning per
+  roadmap — keeps planning fast with many large imported roadmaps.
+
 ## [0.4.0] — 2026-06-23
 
 A smarter planner, less friction, and fewer round-trips — from an improvements audit.

@@ -131,6 +131,15 @@ const DEFAULT_SETTINGS = {
   taskDefaultMin: 20, // assumed effort for a task with no estimate
 };
 
+/** Strict calendar-day check: YYYY-MM-DD that round-trips (rejects 2024-02-30 etc). */
+function isValidDay(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return false;
+  }
+  const d = new Date(`${s}T12:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 const STEP_STATUS = new Set(["todo", "doing", "done"]);
 const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
@@ -188,7 +197,7 @@ export function validateState(s) {
     if (!r?.id || !r?.title) {
       return "roadmap needs an id and title";
     }
-    if (r.targetDate != null && r.targetDate !== "" && Number.isNaN(Date.parse(r.targetDate))) {
+    if (r.targetDate != null && r.targetDate !== "" && !isValidDay(r.targetDate)) {
       return "roadmap.targetDate is not a valid date";
     }
     if (
@@ -251,8 +260,8 @@ export function validateTask(t) {
   if (t.status != null && !TASK_STATUS.has(t.status)) {
     return `bad task status: ${t.status}`;
   }
-  // a garbage due date would persist and silently skew the Today queue + streaks
-  if (t.due != null && t.due !== "" && Number.isNaN(Date.parse(t.due))) {
+  // a garbage/rollover due date would persist and silently skew the queue + streaks
+  if (t.due != null && t.due !== "" && !isValidDay(t.due)) {
     return "task.due is not a valid date";
   }
   if (t.recurrence != null && t.recurrence !== "" && !RECURRENCE.has(t.recurrence)) {

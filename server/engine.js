@@ -130,15 +130,24 @@ export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
   }
 
   // ── next steps: the first not-done step of each active (non-archived) roadmap ──
+  // bucket milestones/steps once (O(n)) instead of re-scanning per roadmap
+  const msByRoadmap = new Map();
+  for (const m of milestones) {
+    (msByRoadmap.get(m.roadmapId) || msByRoadmap.set(m.roadmapId, []).get(m.roadmapId)).push(m);
+  }
+  const stepsByMs = new Map();
+  for (const s of steps) {
+    (stepsByMs.get(s.milestoneId) || stepsByMs.set(s.milestoneId, []).get(s.milestoneId)).push(s);
+  }
   const suggested = [];
   for (const r of roadmaps.filter((r) => !r.archived)) {
-    const rMilestones = milestones
-      .filter((m) => m.roadmapId === r.id)
+    const rMilestones = (msByRoadmap.get(r.id) || [])
+      .slice()
       .sort((a, b) => a.position - b.position);
     let picked = null;
     for (const m of rMilestones) {
-      const next = steps
-        .filter((s) => s.milestoneId === m.id && s.status !== "done")
+      const next = (stepsByMs.get(m.id) || [])
+        .filter((s) => s.status !== "done")
         .sort((a, b) => a.position - b.position)[0];
       if (next) {
         picked = stepLine(next, m, r);

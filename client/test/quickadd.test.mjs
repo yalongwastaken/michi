@@ -43,6 +43,19 @@ test("ISO date is honored", () => {
   assert.equal(parseQuickAdd("submit 2026-07-01", { today: TODAY }).due, "2026-07-01");
 });
 
+test("does not throw on absurd inputs (regression: Date overflow / giant regex)", () => {
+  assert.doesNotThrow(() => parseQuickAdd("finish in 999999999 days", { today: TODAY }));
+  assert.doesNotThrow(() => parseQuickAdd("x " + "1".repeat(100000) + " min", { today: TODAY }));
+  // a 5+ digit duration isn't treated as a duration (stays in title), no Infinity
+  const r = parseQuickAdd("read " + "9".repeat(400) + "h", { today: TODAY });
+  assert.notEqual(r.estMin, Infinity);
+});
+
+test("invalid calendar dates are not accepted as due", () => {
+  const r = parseQuickAdd("submit 2024-13-45", { today: TODAY });
+  assert.equal(r.due, null); // structurally date-shaped but not a real day
+});
+
 test("plain text stays as the title", () => {
   const r = parseQuickAdd("learn about interrupts", { today: TODAY });
   assert.equal(r.title, "learn about interrupts");
