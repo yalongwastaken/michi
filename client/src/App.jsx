@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sun, Map, Hammer, Flame, Settings as SettingsIcon, AlertTriangle } from "lucide-react";
 import { api } from "./lib/api.js";
 import { todayKey } from "./lib/format.js";
@@ -28,6 +28,36 @@ export default function App({ onTheme }) {
 
   const day = todayKey();
 
+  // latest state, readable inside queued writes (closures would otherwise be stale)
+  const stateRef = useRef(null);
+  const applyState = useCallback((s) => {
+    stateRef.current = s;
+    setState(s);
+  }, []);
+
+  // serialize every write: each job runs after the previous settles, so two quick
+  // edits can't race the optimistic-concurrency rev into a 409. A pending counter
+  // drives the global busy flag across the whole queue (no flicker between ops).
+  const queueRef = useRef(Promise.resolve());
+  const pendingRef = useRef(0);
+  const enqueue = useCallback((job) => {
+    pendingRef.current += 1;
+    setBusy(true);
+    const run = queueRef.current.then(job, job);
+    queueRef.current = run.then(
+      () => {},
+      () => {},
+    );
+    queueRef.current.finally(() => {
+      pendingRef.current -= 1;
+      if (pendingRef.current <= 0) {
+        pendingRef.current = 0;
+        setBusy(false);
+      }
+    });
+    return run;
+  }, []);
+
   const refreshDerived = useCallback(async () => {
     const [t, m] = await Promise.all([api.today(day), api.momentum(day)]);
     setToday(t);
@@ -37,78 +67,77 @@ export default function App({ onTheme }) {
   const load = useCallback(async () => {
     try {
       const s = await api.getState();
-      setState(s);
+      applyState(s);
       onTheme?.(s.settings?.theme || "system");
       await refreshDerived();
       setError(null);
     } catch (e) {
       setError(e.message || "could not reach the server");
     }
-  }, [onTheme, refreshDerived]);
+  }, [applyState, onTheme, refreshDerived]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // full-state edit: clone → mutate → PUT (with rev) → adopt result → refresh derived
+  // full-state edit: clone latest → mutate → PUT (with fresh rev) → adopt → refresh.
+  // Resolves to true on success, false on failure (never throws — callers can await).
   const save = useCallback(
-    async (mutator) => {
-      if (!state) {
-        return;
-      }
-      setBusy(true);
-      try {
-        const next = structuredClone(state);
-        mutator(next);
-        const saved = await api.putState({ ...next, rev: state.rev });
-        setState(saved);
-        onTheme?.(saved.settings?.theme || "system");
-        await refreshDerived();
-        setError(null);
-      } catch (e) {
-        // a 409 means another tab saved first — reload the truth
-        if (e.status === 409) {
-          await load();
+    (mutator) =>
+      enqueue(async () => {
+        const cur = stateRef.current;
+        if (!cur) {
+          return false;
         }
-        setError(e.message || "save failed");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [state, onTheme, refreshDerived, load],
+        try {
+          const next = structuredClone(cur);
+          mutator(next);
+          const saved = await api.putState({ ...next, rev: cur.rev });
+          applyState(saved);
+          onTheme?.(saved.settings?.theme || "system");
+          await refreshDerived();
+          setError(null);
+          return true;
+        } catch (e) {
+          if (e.status === 409) {
+            await load(); // someone saved first — reload the truth
+          }
+          setError(e.message || "save failed");
+          return false;
+        }
+      }),
+    [enqueue, applyState, onTheme, refreshDerived, load],
   );
 
-  // lean completion toggle (the hot path) — doesn't go through full-state PUT
+  // lean completion toggle (the hot path) — still serialized for correct ordering
   const complete = useCallback(
-    async (kind, id, done) => {
-      setBusy(true);
-      try {
-        const saved = await api.complete(kind, id, done);
-        setState(saved);
-        await refreshDerived();
-      } catch (e) {
-        setError(e.message || "could not update");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refreshDerived],
+    (kind, id, done) =>
+      enqueue(async () => {
+        try {
+          applyState(await api.complete(kind, id, done));
+          await refreshDerived();
+          return true;
+        } catch (e) {
+          setError(e.message || "could not update");
+          return false;
+        }
+      }),
+    [enqueue, applyState, refreshDerived],
   );
 
   const addTask = useCallback(
-    async (task) => {
-      setBusy(true);
-      try {
-        const saved = await api.addTask(task);
-        setState(saved);
-        await refreshDerived();
-      } catch (e) {
-        setError(e.message || "could not add task");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refreshDerived],
+    (task) =>
+      enqueue(async () => {
+        try {
+          applyState(await api.addTask(task));
+          await refreshDerived();
+          return true;
+        } catch (e) {
+          setError(e.message || "could not add task");
+          return false;
+        }
+      }),
+    [enqueue, applyState, refreshDerived],
   );
 
   if (!state) {

@@ -3,6 +3,29 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.2.0] — 2026-06-23
+
+Feature work toward 1.0: import, richer tasks, and editing polish.
+
+### Added
+
+- **Roadmap import.** Paste Markdown (a roadmap.sh export, a GitHub roadmap README,
+  course notes) and Michi parses it into milestones and steps — headings become
+  milestones, list items become steps, `- [x]` marks done, and `[text](link)`
+  attaches a resource. Live preview before import; runs entirely client-side, so the
+  no-outbound-calls promise holds.
+- **Richer task entry.** A full task editor (Today → the sliders button) with due
+  date, recurrence (one-off / daily / weekdays / weekly), an effort estimate, and
+  optional links to a roadmap step and/or a project. The same modal edits and deletes
+  existing tasks (pencil on any task row).
+- **Reorder.** Move milestones and steps up/down (touch-friendly), and tap a step's
+  title to flag it "in progress."
+
+### Changed
+
+- **Serialized client writes.** All saves/completions run through a queue, so two
+  quick edits can no longer race the optimistic-concurrency `rev` into a 409.
+
 ## [0.1.1] — 2026-06-23
 
 Code audit fixes and a balanced two-color identity.
@@ -26,8 +49,8 @@ Code audit fixes and a balanced two-color identity.
 
 ### Changed
 
-- **Two core colors, balanced.** Emerald *trail* (green = activity & progress) now
-  pairs with a complementary *iris* violet (achievement & momentum). The logo climbs
+- **Two core colors, balanced.** Emerald _trail_ (green = activity & progress) now
+  pairs with a complementary _iris_ violet (achievement & momentum). The logo climbs
   a green path to a violet summit, the header blends both, and streak/“in progress”
   accents are violet. Replaces the former amber accent.
 
