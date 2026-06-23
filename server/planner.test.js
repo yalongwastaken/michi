@@ -100,6 +100,28 @@ test("streak protection: returns one item even when budget is below a step", () 
   assert.equal(p.items[0].reason, "streak");
 });
 
+test("undated backlog tasks are planned (even with no roadmaps)", () => {
+  const s = state({
+    tasks: [
+      { id: "b1", title: "tidy notes", status: "todo", estMin: 15 },
+      { id: "b2", title: "watch a talk", status: "todo", estMin: 20 },
+    ],
+  });
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 60 });
+  assert.equal(p.items.length, 2);
+  assert.equal(p.plannedMin, 35);
+  assert.ok(p.items.every((i) => i.kind === "task"));
+});
+
+test("a cheap task slots into a small leftover after a step", () => {
+  const r = roadmap("R", ["s1"]); // one step @ default 30
+  const s = state({ ...r, tasks: [{ id: "q", title: "quick", status: "todo", estMin: 10 }] });
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 45, defaultStepMin: 30 });
+  // 30 (step) + 10 (task) = 40 ≤ 45; both fit
+  assert.equal(p.items.length, 2);
+  assert.equal(p.plannedMin, 40);
+});
+
 test("empty when there's nothing to do", () => {
   const p = planDay(state(), { today: "2026-06-23", budgetMin: 60 });
   assert.equal(p.items.length, 0);

@@ -9,6 +9,13 @@ WorkingDirectory=/home/youruser/michi/server
 ExecStart=/usr/bin/node --experimental-sqlite index.js
 Environment=PORT=4001
 Environment=HOST=0.0.0.0
+# IMPORTANT: set this to YOUR timezone. Streaks & the heatmap bucket completions by the
+# server's local day, so a UTC-only box would mis-file evening activity. (`timedatectl
+# list-timezones` to find yours.)
+Environment=TZ=America/New_York
+# To enable the optional local model layer (see README), uncomment:
+# Environment=MICHI_LLM=1
+# Environment=MICHI_LLM_MODEL=llama3.2:3b
 Restart=on-failure
 RestartSec=3
 

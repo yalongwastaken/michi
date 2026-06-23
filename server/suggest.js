@@ -193,8 +193,17 @@ export async function refinePlan(state, draft, opts = {}, deps = {}) {
   }
   const { system, user } = buildMessages(rows, budgetMin);
 
+  // resolve against the base so a stray path/query in MICHI_LLM_URL can't mangle the
+  // endpoint (defense-in-depth; the URL is operator-set, never request-controlled)
+  let endpoint;
   try {
-    const res = await doFetch(`${cfg.url}/api/chat`, {
+    endpoint = new URL("/api/chat", cfg.url).toString();
+  } catch {
+    return draft; // a malformed MICHI_LLM_URL shouldn't 500 the request
+  }
+
+  try {
+    const res = await doFetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
