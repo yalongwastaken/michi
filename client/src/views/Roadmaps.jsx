@@ -12,6 +12,8 @@ import {
   ArchiveRestore,
   Link2,
   Upload,
+  Pencil,
+  CalendarClock,
 } from "lucide-react";
 import {
   Card,
@@ -20,13 +22,23 @@ import {
   Input,
   Field,
   Textarea,
+  Select,
   Modal,
   EmptyState,
   ProgressBar,
 } from "../ui.jsx";
 import { roadmapTree, nextPosition } from "../lib/tree.js";
 import { parseRoadmap } from "../lib/parse.js";
+import { shortDate } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
+
+const STEP_MINUTE_OPTS = [
+  ["", "default"],
+  ["15", "15 min"],
+  ["30", "30 min"],
+  ["45", "45 min"],
+  ["60", "1 hour"],
+];
 
 const COLORS = ["#10B981", "#0EA5E9", "#8B5CF6", "#F59E0B", "#F43F5E", "#64748B"];
 
@@ -149,9 +161,26 @@ function AddInline({ placeholder, onAdd, busy }) {
   );
 }
 
-function RoadmapCard({ rm, ctx }) {
+function deadlineInfo(rm, today) {
+  if (!rm.targetDate) {
+    return null;
+  }
+  const daysLeft = Math.max(
+    1,
+    Math.round(
+      (Date.parse(`${rm.targetDate}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000,
+    ) + 1,
+  );
+  const remaining = rm.total - rm.done;
+  const overdue = Date.parse(`${rm.targetDate}T12:00:00Z`) < Date.parse(`${today}T12:00:00Z`);
+  const perDay = remaining > 0 ? Math.ceil(remaining / daysLeft) : 0;
+  return { daysLeft, remaining, perDay, overdue, done: remaining <= 0 };
+}
+
+function RoadmapCard({ rm, ctx, onEdit }) {
   const { save, complete, busy } = ctx;
   const [open, setOpen] = useState(rm.pct < 100 && rm.total > 0);
+  const dl = deadlineInfo(rm, ctx.day);
 
   // step done toggle uses the lean endpoint (stamps done_at server-side)
   const setDone = (step, done) => complete("step", step.id, done);
@@ -248,6 +277,15 @@ function RoadmapCard({ rm, ctx }) {
               {rm.done}/{rm.total}
             </span>
           </div>
+          {dl && !dl.done ? (
+            <p
+              className={`mt-1 flex items-center gap-1 text-xs ${dl.overdue ? "text-rose-500" : "text-slate-400"}`}
+            >
+              <CalendarClock size={11} />
+              {dl.overdue ? "past due" : `due ${shortDate(rm.targetDate)}`} · ~{dl.perDay}/day to
+              finish
+            </p>
+          ) : null}
         </div>
         {open ? (
           <ChevronDown size={18} className="text-slate-400" />
@@ -323,6 +361,9 @@ function RoadmapCard({ rm, ctx }) {
           </div>
 
           <div className="mt-3 flex items-center justify-end gap-1">
+            <IconButton label="Edit roadmap" onClick={() => onEdit(rm)}>
+              <Pencil size={16} />
+            </IconButton>
             <IconButton label={rm.archived ? "Unarchive" : "Archive"} onClick={toggleArchive}>
               {rm.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
             </IconButton>
@@ -336,40 +377,77 @@ function RoadmapCard({ rm, ctx }) {
   );
 }
 
-function NewRoadmapModal({ ctx, onClose }) {
-  const { save, busy } = ctx;
-  const [title, setTitle] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [color, setColor] = useState(COLORS[0]);
+function ColorPicker({ color, setColor }) {
+  return (
+    <div className="flex gap-2">
+      {COLORS.map((c) => (
+        <button
+          key={c}
+          onClick={() => setColor(c)}
+          aria-label={`color ${c}`}
+          className={`h-8 w-8 rounded-full ring-2 ring-offset-2 transition dark:ring-offset-slate-900 ${
+            color === c ? "ring-slate-400" : "ring-transparent"
+          }`}
+          style={{ background: c }}
+        />
+      ))}
+    </div>
+  );
+}
 
-  const create = async () => {
+function RoadmapModal({ ctx, roadmap = null, onClose }) {
+  const { save, busy } = ctx;
+  const editing = !!roadmap;
+  const [title, setTitle] = useState(roadmap?.title || "");
+  const [sourceUrl, setSourceUrl] = useState(roadmap?.sourceUrl || "");
+  const [color, setColor] = useState(roadmap?.color || COLORS[0]);
+  const [targetDate, setTargetDate] = useState(roadmap?.targetDate || "");
+  const [stepMinutes, setStepMinutes] = useState(
+    roadmap?.stepMinutes != null ? String(roadmap.stepMinutes) : "",
+  );
+
+  const commit = async () => {
     if (!title.trim()) {
       return;
     }
-    await save((s) => {
-      s.roadmaps.push({
-        id: uid("rm"),
-        title: title.trim(),
-        sourceUrl: sourceUrl.trim() || null,
-        color,
-        archived: false,
-        position: nextPosition(s.roadmaps),
-      });
+    const fields = {
+      title: title.trim(),
+      sourceUrl: sourceUrl.trim() || null,
+      color,
+      targetDate: targetDate || null,
+      stepMinutes: stepMinutes === "" ? null : Number(stepMinutes),
+    };
+    const ok = await save((s) => {
+      if (editing) {
+        const r = s.roadmaps.find((x) => x.id === roadmap.id);
+        if (r) {
+          Object.assign(r, fields);
+        }
+      } else {
+        s.roadmaps.push({
+          id: uid("rm"),
+          archived: false,
+          position: nextPosition(s.roadmaps),
+          ...fields,
+        });
+      }
     });
-    onClose();
+    if (ok !== false) {
+      onClose();
+    }
   };
 
   return (
     <Modal
-      title="New roadmap"
+      title={editing ? "Edit roadmap" : "New roadmap"}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={create} disabled={busy || !title.trim()}>
-            Create
+          <Button onClick={commit} disabled={busy || !title.trim()}>
+            {editing ? "Save" : "Create"}
           </Button>
         </>
       }
@@ -380,9 +458,23 @@ function NewRoadmapModal({ ctx, onClose }) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Bare-metal embedded"
-          onKeyDown={(e) => e.key === "Enter" && create()}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
         />
       </Field>
+      <div className="flex gap-3">
+        <Field label="Finish by" hint="Optional — Michi paces you to hit it.">
+          <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
+        </Field>
+        <Field label="Minutes / step" hint="For the planner's budget.">
+          <Select value={stepMinutes} onChange={(e) => setStepMinutes(e.target.value)}>
+            {STEP_MINUTE_OPTS.map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
       <Field label="Source link" hint="Optional — a roadmap.sh track, a GitHub repo, a course…">
         <Input
           value={sourceUrl}
@@ -391,19 +483,7 @@ function NewRoadmapModal({ ctx, onClose }) {
         />
       </Field>
       <Field label="Color">
-        <div className="flex gap-2">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              aria-label={`color ${c}`}
-              className={`h-8 w-8 rounded-full ring-2 ring-offset-2 transition dark:ring-offset-slate-900 ${
-                color === c ? "ring-slate-400" : "ring-transparent"
-              }`}
-              style={{ background: c }}
-            />
-          ))}
-        </div>
+        <ColorPicker color={color} setColor={setColor} />
       </Field>
     </Modal>
   );
@@ -414,6 +494,7 @@ function ImportRoadmapModal({ ctx, onClose }) {
   const [title, setTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [color, setColor] = useState(COLORS[0]);
+  const [targetDate, setTargetDate] = useState("");
   const [md, setMd] = useState("");
 
   const parsed = parseRoadmap(md, { title });
@@ -429,6 +510,7 @@ function ImportRoadmapModal({ ctx, onClose }) {
         title: parsed.title,
         sourceUrl: sourceUrl.trim() || null,
         color,
+        targetDate: targetDate || null,
         archived: false,
         position: nextPosition(s.roadmaps),
       });
@@ -493,28 +575,19 @@ function ImportRoadmapModal({ ctx, onClose }) {
             placeholder={parsed.title}
           />
         </Field>
-        <Field label="Source link">
-          <Input
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            placeholder="https://roadmap.sh/…"
-          />
+        <Field label="Finish by" hint="Optional deadline.">
+          <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
         </Field>
       </div>
+      <Field label="Source link">
+        <Input
+          value={sourceUrl}
+          onChange={(e) => setSourceUrl(e.target.value)}
+          placeholder="https://roadmap.sh/…"
+        />
+      </Field>
       <Field label="Color">
-        <div className="flex gap-2">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              aria-label={`color ${c}`}
-              className={`h-8 w-8 rounded-full ring-2 ring-offset-2 transition dark:ring-offset-slate-900 ${
-                color === c ? "ring-slate-400" : "ring-transparent"
-              }`}
-              style={{ background: c }}
-            />
-          ))}
-        </div>
+        <ColorPicker color={color} setColor={setColor} />
       </Field>
       {md.trim() ? (
         <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
@@ -545,7 +618,10 @@ function ImportRoadmapModal({ ctx, onClose }) {
 export default function Roadmaps({ ctx }) {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [editRm, setEditRm] = useState(null);
   const tree = roadmapTree(ctx.state);
+  // find the latest version of the roadmap being edited (tree carries it)
+  const editing = editRm ? tree.find((r) => r.id === editRm) : null;
   const active = tree.filter((r) => !r.archived);
   const archived = tree.filter((r) => r.archived);
 
@@ -584,7 +660,7 @@ export default function Roadmaps({ ctx }) {
       ) : (
         <div className="space-y-3">
           {active.map((rm) => (
-            <RoadmapCard key={rm.id} rm={rm} ctx={ctx} />
+            <RoadmapCard key={rm.id} rm={rm} ctx={ctx} onEdit={() => setEditRm(rm.id)} />
           ))}
           {archived.length ? (
             <div className="pt-2">
@@ -593,7 +669,7 @@ export default function Roadmaps({ ctx }) {
               </p>
               <div className="space-y-3">
                 {archived.map((rm) => (
-                  <RoadmapCard key={rm.id} rm={rm} ctx={ctx} />
+                  <RoadmapCard key={rm.id} rm={rm} ctx={ctx} onEdit={() => setEditRm(rm.id)} />
                 ))}
               </div>
             </div>
@@ -601,7 +677,8 @@ export default function Roadmaps({ ctx }) {
         </div>
       )}
 
-      {adding && <NewRoadmapModal ctx={ctx} onClose={() => setAdding(false)} />}
+      {adding && <RoadmapModal ctx={ctx} onClose={() => setAdding(false)} />}
+      {editing && <RoadmapModal ctx={ctx} roadmap={editing} onClose={() => setEditRm(null)} />}
       {importing && <ImportRoadmapModal ctx={ctx} onClose={() => setImporting(false)} />}
     </div>
   );

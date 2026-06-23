@@ -22,6 +22,7 @@ export default function App({ onTheme }) {
   const [today, setToday] = useState(null);
   const [momentum, setMomentum] = useState(null);
   const [plan, setPlan] = useState(null);
+  const [nudges, setNudges] = useState([]);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [tab, setTab] = useState("today");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -60,20 +61,34 @@ export default function App({ onTheme }) {
     return run;
   }, []);
 
+  // one round-trip for the whole Today screen (queue + momentum + plan + nudges)
   const refreshDerived = useCallback(async () => {
-    const [t, m, p] = await Promise.all([api.today(day), api.momentum(day), api.plan(day)]);
-    setToday(t);
-    setMomentum(m);
-    setPlan(p);
+    const d = await api.dashboard(day);
+    setToday(d.today);
+    setMomentum(d.momentum);
+    setPlan(d.plan);
+    setNudges(d.insights || []);
   }, [day]);
 
-  // re-run the planner; pass {ai:true} to ask the local model to refine it
+  // re-run the planner; {ai:true} asks the local model, {budget} overrides the budget
   const replan = useCallback(
-    async ({ ai = false } = {}) => {
+    async ({ ai = false, budget } = {}) => {
       try {
-        setPlan(await api.plan(day, { ai }));
+        setPlan(await api.plan(day, { ai, budget }));
       } catch (e) {
         setError(e.message || "could not build a plan");
+      }
+    },
+    [day],
+  );
+
+  // push a plan item off today ("not today"), or restore it
+  const skipPlanItem = useCallback(
+    async (kind, id, on = true) => {
+      try {
+        setPlan(await api.skipPlanItem(kind, id, day, on));
+      } catch (e) {
+        setError(e.message || "could not update the plan");
       }
     },
     [day],
@@ -186,8 +201,10 @@ export default function App({ onTheme }) {
     today,
     momentum,
     plan,
+    nudges,
     aiEnabled,
     replan,
+    skipPlanItem,
     day,
     save,
     complete,

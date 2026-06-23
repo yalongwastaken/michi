@@ -3,6 +3,35 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.4.0] — 2026-06-23
+
+A smarter planner, less friction, and fewer round-trips — from an improvements audit.
+
+### Added
+
+- **Deadlines + pacing.** Roadmaps can have a "finish by" date; the planner schedules
+  enough steps/day to land it in time (urgent deadlines first), tagged "deadline" on
+  Today. Each roadmap can also set its typical **minutes per step** for accurate
+  budgeting. Cards show "due {date} · ~N/day to finish."
+- **Natural-language quick add.** Typing "read SPI docs 30m tomorrow" parses into a
+  task with due date, estimate, and recurrence — deterministic, no model.
+- **Interactive plan.** "Not today" pushes an item off (per-day, self-expiring),
+  "one more" stretches the budget for an extra item.
+- **Nudges.** Today surfaces short, data-driven prompts: overdue counts, a roadmap
+  that's almost done, or one that's been neglected for a week+.
+
+### Changed
+
+- **One round-trip for Today.** A new `GET /api/dashboard` returns queue + momentum +
+  plan + insights together, replacing three separate calls after every edit.
+- **Touch fix.** The task-edit affordance is always visible (it was hover-only, so
+  invisible on phones — the PWA's main device). Modals now trap focus (Tab).
+- **DRY.** Recurrence logic is shared between the Today queue and the planner.
+
+### Notes
+
+- Deploy bucketing depends on the host timezone — the systemd unit now sets `TZ`.
+
 ## [0.3.0] — 2026-06-23
 
 Michi starts deciding _for_ you. Today now leads with a planned day instead of a raw

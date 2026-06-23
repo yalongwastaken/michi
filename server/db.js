@@ -18,13 +18,15 @@ db.exec("PRAGMA foreign_keys = ON");
 db.exec(`
   -- a learning path: a roadmap.sh-style track, a GitHub roadmap, a course, a book…
   CREATE TABLE IF NOT EXISTS roadmaps (
-    id         TEXT PRIMARY KEY,
-    title      TEXT NOT NULL,
-    source_url TEXT,                 -- where it came from (roadmap.sh, a GH repo, …)
-    color      TEXT,
-    archived   INTEGER NOT NULL DEFAULT 0,
-    position   INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    source_url  TEXT,                -- where it came from (roadmap.sh, a GH repo, …)
+    color       TEXT,
+    archived    INTEGER NOT NULL DEFAULT 0,
+    position    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    target_date TEXT,                -- optional "finish by" date → enables pacing
+    step_minutes INTEGER             -- optional avg minutes/step → better budgeting
   );
 
   -- a major checkpoint within a roadmap (e.g. "Fundamentals", "Drivers")
@@ -100,6 +102,20 @@ db.exec(`
   );
 `);
 
+// migrate older DBs that predate the roadmap pacing columns
+{
+  const cols = db
+    .prepare("PRAGMA table_info(roadmaps)")
+    .all()
+    .map((c) => c.name);
+  if (!cols.includes("target_date")) {
+    db.exec("ALTER TABLE roadmaps ADD COLUMN target_date TEXT");
+  }
+  if (!cols.includes("step_minutes")) {
+    db.exec("ALTER TABLE roadmaps ADD COLUMN step_minutes INTEGER");
+  }
+}
+
 // ── defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_PROFILE = {
   name: "",
@@ -172,6 +188,15 @@ export function validateState(s) {
     if (!r?.id || !r?.title) {
       return "roadmap needs an id and title";
     }
+    if (r.targetDate != null && r.targetDate !== "" && Number.isNaN(Date.parse(r.targetDate))) {
+      return "roadmap.targetDate is not a valid date";
+    }
+    if (
+      r.stepMinutes != null &&
+      (!Number.isFinite(Number(r.stepMinutes)) || Number(r.stepMinutes) < 0)
+    ) {
+      return "roadmap.stepMinutes must be a non-negative number";
+    }
   }
   for (const m of s.milestones || []) {
     if (!m?.id || !m?.roadmapId) {
@@ -239,6 +264,30 @@ export function validateTask(t) {
   return null;
 }
 
+// ── "not today" skips ───────────────────────────────────────────────────────────
+// Transient, per-day UI state (not part of the saved model): which plan items the
+// user pushed off today. Stored as a single { day, keys } so it self-expires — a new
+// day starts with a clean slate.
+export function getPlanSkips(day) {
+  const m = getMeta("planSkips", null);
+  return m && m.day === day ? m.keys || [] : [];
+}
+
+export function setPlanSkip(day, kind, id, on = true) {
+  const key = `${kind}:${id}`;
+  const m = getMeta("planSkips", null);
+  let keys = m && m.day === day ? [...m.keys] : [];
+  if (on) {
+    if (!keys.includes(key)) {
+      keys.push(key);
+    }
+  } else {
+    keys = keys.filter((k) => k !== key);
+  }
+  setMeta("planSkips", { day, keys });
+  return keys;
+}
+
 // ── full state assembly (what GET /api/state returns) ───────────────────────────
 /** Assemble the full unified model from the normalized tables (flat arrays). */
 export function getState() {
@@ -246,7 +295,7 @@ export function getState() {
     rev: getRev(),
     roadmaps: db
       .prepare(
-        "SELECT id, title, source_url AS sourceUrl, color, archived, position, created_at AS createdAt FROM roadmaps ORDER BY position, created_at",
+        "SELECT id, title, source_url AS sourceUrl, color, archived, position, created_at AS createdAt, target_date AS targetDate, step_minutes AS stepMinutes FROM roadmaps ORDER BY position, created_at",
       )
       .all()
       .map((r) => ({ ...r, archived: !!r.archived })),
@@ -368,7 +417,7 @@ function replaceAll(state) {
 
   const ins = {
     roadmap: db.prepare(
-      "INSERT INTO roadmaps(id,title,source_url,color,archived,position,created_at) VALUES(@id,@title,@sourceUrl,@color,@archived,@position,@createdAt)",
+      "INSERT INTO roadmaps(id,title,source_url,color,archived,position,created_at,target_date,step_minutes) VALUES(@id,@title,@sourceUrl,@color,@archived,@position,@createdAt,@targetDate,@stepMinutes)",
     ),
     milestone: db.prepare(
       "INSERT INTO milestones(id,roadmap_id,title,position) VALUES(@id,@roadmapId,@title,@position)",
@@ -391,6 +440,8 @@ function replaceAll(state) {
       color: null,
       position: 0,
       createdAt: nowIso,
+      targetDate: null,
+      stepMinutes: null,
       ...r,
       archived: r.archived ? 1 : 0, // coerce bool → 0/1 for the INTEGER column
     });
@@ -478,7 +529,7 @@ export function resetAll() {
     for (const t of ["tasks", "steps", "milestones", "roadmaps", "projects", "completions"]) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
-    db.prepare("DELETE FROM meta WHERE key IN ('profile', 'settings')").run();
+    db.prepare("DELETE FROM meta WHERE key IN ('profile', 'settings', 'planSkips')").run();
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {

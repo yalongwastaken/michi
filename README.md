@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.3.0** · self-hosted · single-user · no cloud · AI is optional & fully local
+**v0.4.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -17,11 +17,13 @@ You have more learning goals than you can hold in your head: roadmap.sh tracks, 
 roadmaps, courses, books, half-started repos. Michi gives them structure and a daily
 front door.
 
-- **Roadmaps** — a learning path broken into **milestones → steps**. Track % complete.
+- **Roadmaps** — a learning path broken into **milestones → steps**. Track % complete,
+  set an optional **finish-by date** (Michi paces you to hit it), and reorder freely.
 - **Today** — the home screen. A **planner** looks at the whole picture (what's due,
-  what's in progress, which roadmaps are being neglected, your streak) and assembles a
-  _doable day_ that fits a time budget you set — instead of making you decide. "What
-  should I work on today?", answered.
+  what's in progress, deadlines, which roadmaps are neglected, your streak) and
+  assembles a _doable day_ that fits a time budget you set. Push items to tomorrow
+  ("not today"), ask for "one more," and add tasks in plain language ("read SPI 30m
+  tomorrow"). Short **nudges** point out what needs attention.
 - **Projects** — the meaningful things you want to build/ship, moved from idea →
   in progress → shipped (because learning sticks when you build).
 - **Momentum** — a streak, a contribution-style heatmap, longest streak, active days,
@@ -135,20 +137,22 @@ make test         # server engine/db tests + client lib tests
 
 ## API
 
-| Method | Path            | Purpose                                                      |
-| ------ | --------------- | ------------------------------------------------------------ |
-| GET    | `/api/health`   | liveness check                                               |
-| GET    | `/api/state`    | full unified model                                           |
-| PUT    | `/api/state`    | replace the full model (the client's "save")                 |
-| POST   | `/api/tasks`    | append a single task (lean write)                            |
-| POST   | `/api/complete` | toggle a task/step done (`{kind,id,done}`)                   |
-| GET    | `/api/today`    | the focused daily queue (`?day=`, `?limit=`)                 |
-| GET    | `/api/plan`     | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`) |
-| GET    | `/api/momentum` | streak, heatmap, roadmap/project progress (`?day=`)          |
-| GET    | `/api/config`   | client capability probe (whether the local model is on)      |
-| GET    | `/api/export`   | download the full model as JSON                              |
-| POST   | `/api/import`   | replace the model from an exported JSON                      |
-| POST   | `/api/reset`    | wipe everything and start fresh                              |
+| Method | Path             | Purpose                                                        |
+| ------ | ---------------- | -------------------------------------------------------------- |
+| GET    | `/api/health`    | liveness check                                                 |
+| GET    | `/api/state`     | full unified model                                             |
+| PUT    | `/api/state`     | replace the full model (the client's "save")                   |
+| POST   | `/api/tasks`     | append a single task (lean write)                              |
+| POST   | `/api/complete`  | toggle a task/step done (`{kind,id,done}`)                     |
+| GET    | `/api/today`     | the focused daily queue (`?day=`, `?limit=`)                   |
+| GET    | `/api/plan`      | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)   |
+| POST   | `/api/plan/skip` | push a plan item to tomorrow (`{kind,id,day,on}`)              |
+| GET    | `/api/momentum`  | streak, heatmap, roadmap/project progress (`?day=`)            |
+| GET    | `/api/dashboard` | today + momentum + plan + insights in one round-trip (`?day=`) |
+| GET    | `/api/config`    | client capability probe (whether the local model is on)        |
+| GET    | `/api/export`    | download the full model as JSON                                |
+| POST   | `/api/import`    | replace the model from an exported JSON                        |
+| POST   | `/api/reset`     | wipe everything and start fresh                                |
 
 ## License
 
