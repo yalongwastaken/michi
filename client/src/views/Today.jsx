@@ -8,10 +8,13 @@ import {
   Sparkles,
   Clock,
   Repeat,
+  Pencil,
+  SlidersHorizontal,
 } from "lucide-react";
-import { Card, Button, Input, EmptyState, Badge } from "../ui.jsx";
+import { Card, Button, Input, EmptyState, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
+import TaskModal from "./TaskModal.jsx";
 
 function greeting() {
   const h = new Date().getHours();
@@ -27,11 +30,11 @@ function greeting() {
   return "Good evening";
 }
 
-function Row({ item, onToggle, busy }) {
+function Row({ item, onToggle, busy, onEdit }) {
   const isStep = item.kind === "step";
   const done = item.status === "done";
   return (
-    <div className="flex items-start gap-3 px-4 py-3">
+    <div className="group flex items-start gap-3 px-4 py-3">
       <button
         disabled={busy}
         onClick={() => onToggle(item.kind, item.id, !done)}
@@ -87,11 +90,20 @@ function Row({ item, onToggle, busy }) {
           ) : null}
         </div>
       </div>
+      {onEdit && !isStep ? (
+        <IconButton
+          label="Edit task"
+          className="h-7 w-7 opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+          onClick={() => onEdit(item)}
+        >
+          <Pencil size={14} />
+        </IconButton>
+      ) : null}
     </div>
   );
 }
 
-function Section({ title, icon: Icon, items, onToggle, busy, tint = "text-slate-400" }) {
+function Section({ title, icon: Icon, items, onToggle, busy, onEdit, tint = "text-slate-400" }) {
   if (!items?.length) {
     return null;
   }
@@ -104,7 +116,13 @@ function Section({ title, icon: Icon, items, onToggle, busy, tint = "text-slate-
       </div>
       <Card className="divide-y divide-slate-100 dark:divide-slate-800">
         {items.map((it) => (
-          <Row key={`${it.kind}_${it.id}`} item={it} onToggle={onToggle} busy={busy} />
+          <Row
+            key={`${it.kind}_${it.id}`}
+            item={it}
+            onToggle={onToggle}
+            busy={busy}
+            onEdit={onEdit}
+          />
         ))}
       </Card>
     </div>
@@ -112,9 +130,17 @@ function Section({ title, icon: Icon, items, onToggle, busy, tint = "text-slate-
 }
 
 export default function Today({ ctx }) {
-  const { today, momentum, complete, addTask, busy } = ctx;
+  const { today, momentum, complete, addTask, busy, state } = ctx;
   const [text, setText] = useState("");
   const [showDone, setShowDone] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [editTask, setEditTask] = useState(null);
+
+  // open the editor with the full stored task (the queue item is a lean projection)
+  const openEdit = (item) => {
+    const full = (state.tasks || []).find((t) => t.id === item.id);
+    setEditTask(full || item);
+  };
 
   if (!today) {
     return null;
@@ -169,6 +195,14 @@ export default function Today({ ctx }) {
           placeholder="Add a task for today…"
           aria-label="New task"
         />
+        <IconButton
+          label="Add with details"
+          type="button"
+          onClick={() => setShowNew(true)}
+          className="shrink-0 border border-slate-300 dark:border-slate-600"
+        >
+          <SlidersHorizontal size={16} />
+        </IconButton>
         <Button type="submit" disabled={busy || !text.trim()} aria-label="Add task">
           <Plus size={16} />
         </Button>
@@ -186,6 +220,7 @@ export default function Today({ ctx }) {
             items={today.overdue}
             onToggle={complete}
             busy={busy}
+            onEdit={openEdit}
             tint="text-rose-500"
           />
           <Section
@@ -194,6 +229,7 @@ export default function Today({ ctx }) {
             items={today.dueToday}
             onToggle={complete}
             busy={busy}
+            onEdit={openEdit}
           />
           <Section
             title="Suggested next steps"
@@ -224,6 +260,9 @@ export default function Today({ ctx }) {
           ) : null}
         </div>
       ) : null}
+
+      {showNew ? <TaskModal ctx={ctx} onClose={() => setShowNew(false)} /> : null}
+      {editTask ? <TaskModal ctx={ctx} task={editTask} onClose={() => setEditTask(null)} /> : null}
     </div>
   );
 }

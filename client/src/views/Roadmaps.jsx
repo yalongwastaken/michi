@@ -2,28 +2,75 @@ import { useState } from "react";
 import {
   Plus,
   Check,
-  Play,
-  Pause,
   Trash2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Map,
   ExternalLink,
   Archive,
   ArchiveRestore,
   Link2,
+  Upload,
 } from "lucide-react";
-import { Card, Button, IconButton, Input, Field, Modal, EmptyState, ProgressBar } from "../ui.jsx";
+import {
+  Card,
+  Button,
+  IconButton,
+  Input,
+  Field,
+  Textarea,
+  Modal,
+  EmptyState,
+  ProgressBar,
+} from "../ui.jsx";
 import { roadmapTree, nextPosition } from "../lib/tree.js";
+import { parseRoadmap } from "../lib/parse.js";
 import { uid } from "../lib/uid.js";
 
 const COLORS = ["#10B981", "#0EA5E9", "#8B5CF6", "#F59E0B", "#F43F5E", "#64748B"];
 
-function StepRow({ step, onDone, onDoing, onDelete, busy }) {
+/** Move the sibling `id` up (-1) or down (+1) and re-number positions contiguously. */
+function reorder(siblings, id, dir) {
+  const sorted = [...siblings].sort((a, b) => a.position - b.position);
+  const i = sorted.findIndex((x) => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= sorted.length) {
+    return;
+  }
+  [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
+  sorted.forEach((x, idx) => (x.position = idx)); // mutates the shared state refs
+}
+
+/** Compact up/down reorder control. */
+function MoveButtons({ canUp, canDown, onMove, busy }) {
+  return (
+    <span className="flex flex-col">
+      <button
+        disabled={busy || !canUp}
+        onClick={() => onMove(-1)}
+        aria-label="Move up"
+        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 dark:hover:text-slate-200"
+      >
+        <ChevronUp size={14} />
+      </button>
+      <button
+        disabled={busy || !canDown}
+        onClick={() => onMove(1)}
+        aria-label="Move down"
+        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 dark:hover:text-slate-200"
+      >
+        <ChevronDown size={14} />
+      </button>
+    </span>
+  );
+}
+
+function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy }) {
   const done = step.status === "done";
   const doing = step.status === "doing";
   return (
-    <div className="group flex items-center gap-3 py-2">
+    <div className="group flex items-center gap-2 py-2">
       <button
         disabled={busy}
         onClick={() => onDone(step, !done)}
@@ -36,40 +83,34 @@ function StepRow({ step, onDone, onDoing, onDelete, busy }) {
       >
         <Check size={12} strokeWidth={3} />
       </button>
-      <span
-        className={`min-w-0 flex-1 truncate text-sm ${
+      {/* tap the title to toggle "in progress" (touch-friendly, no hover needed) */}
+      <button
+        disabled={busy || done}
+        onClick={() => onDoing(step, !doing)}
+        className={`min-w-0 flex-1 truncate text-left text-sm ${
           done ? "text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"
         }`}
       >
         {step.title}
         {doing ? <span className="ml-2 text-xs font-medium text-iris-500">in progress</span> : null}
-      </span>
+      </button>
       {step.resourceUrl ? (
         <a
           href={step.resourceUrl}
           target="_blank"
           rel="noreferrer"
-          className="text-slate-400 hover:text-trail-600"
+          className="shrink-0 text-slate-400 hover:text-trail-600"
           aria-label="Open resource"
         >
           <ExternalLink size={14} />
         </a>
       ) : null}
-      {!done ? (
-        <button
-          disabled={busy}
-          onClick={() => onDoing(step, !doing)}
-          aria-label={doing ? "Pause" : "Start"}
-          className="text-slate-300 hover:text-iris-500"
-        >
-          {doing ? <Pause size={15} /> : <Play size={15} />}
-        </button>
-      ) : null}
+      <MoveButtons canUp={canUp} canDown={canDown} onMove={onMove} busy={busy} />
       <button
         disabled={busy}
         onClick={() => onDelete(step)}
         aria-label="Delete step"
-        className="text-slate-300 opacity-0 transition hover:text-rose-500 group-hover:opacity-100"
+        className="shrink-0 text-slate-300 transition hover:text-rose-500"
       >
         <Trash2 size={14} />
       </button>
@@ -150,6 +191,24 @@ function RoadmapCard({ rm, ctx }) {
       });
     });
 
+  const moveStep = (milestoneId, stepId, dir) =>
+    save((s) =>
+      reorder(
+        s.steps.filter((x) => x.milestoneId === milestoneId),
+        stepId,
+        dir,
+      ),
+    );
+
+  const moveMilestone = (milestoneId, dir) =>
+    save((s) =>
+      reorder(
+        s.milestones.filter((m) => m.roadmapId === rm.id),
+        milestoneId,
+        dir,
+      ),
+    );
+
   const toggleArchive = () =>
     save((s) => {
       const r = s.roadmaps.find((x) => x.id === rm.id);
@@ -216,24 +275,35 @@ function RoadmapCard({ rm, ctx }) {
             </p>
           ) : (
             <div className="space-y-3">
-              {rm.milestones.map((m) => (
+              {rm.milestones.map((m, mi) => (
                 <div key={m.id}>
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="min-w-0 truncate text-sm font-semibold text-slate-600 dark:text-slate-300">
                       {m.title}
                     </h4>
-                    <span className="text-xs text-slate-400">
-                      {m.done}/{m.total}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="text-xs text-slate-400">
+                        {m.done}/{m.total}
+                      </span>
+                      <MoveButtons
+                        canUp={mi > 0}
+                        canDown={mi < rm.milestones.length - 1}
+                        onMove={(dir) => moveMilestone(m.id, dir)}
+                        busy={busy}
+                      />
+                    </div>
                   </div>
                   <div className="mt-0.5 divide-y divide-slate-100 dark:divide-slate-800">
-                    {m.steps.map((st) => (
+                    {m.steps.map((st, si) => (
                       <StepRow
                         key={st.id}
                         step={st}
                         onDone={setDone}
                         onDoing={setDoing}
                         onDelete={delStep}
+                        onMove={(dir) => moveStep(m.id, st.id, dir)}
+                        canUp={si > 0}
+                        canDown={si < m.steps.length - 1}
                         busy={busy}
                       />
                     ))}
@@ -339,8 +409,142 @@ function NewRoadmapModal({ ctx, onClose }) {
   );
 }
 
+function ImportRoadmapModal({ ctx, onClose }) {
+  const { save, busy } = ctx;
+  const [title, setTitle] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [color, setColor] = useState(COLORS[0]);
+  const [md, setMd] = useState("");
+
+  const parsed = parseRoadmap(md, { title });
+
+  const create = async () => {
+    if (!md.trim() || parsed.stepCount === 0) {
+      return;
+    }
+    const ok = await save((s) => {
+      const rmId = uid("rm");
+      s.roadmaps.push({
+        id: rmId,
+        title: parsed.title,
+        sourceUrl: sourceUrl.trim() || null,
+        color,
+        archived: false,
+        position: nextPosition(s.roadmaps),
+      });
+      parsed.milestones.forEach((m, mi) => {
+        const msId = uid("ms");
+        s.milestones.push({ id: msId, roadmapId: rmId, title: m.title, position: mi });
+        m.steps.forEach((st, si) => {
+          s.steps.push({
+            id: uid("step"),
+            milestoneId: msId,
+            title: st.title,
+            status: st.status,
+            resourceUrl: st.resourceUrl || null,
+            position: si,
+          });
+        });
+      });
+    });
+    if (ok !== false) {
+      onClose();
+    }
+  };
+
+  return (
+    <Modal
+      title="Import a roadmap"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={create} disabled={busy || parsed.stepCount === 0}>
+            Import {parsed.stepCount ? `${parsed.stepCount} steps` : ""}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-slate-500">
+        Paste Markdown — a roadmap.sh export, a GitHub roadmap README, course notes.
+        <span className="text-slate-400">
+          {" "}
+          Headings become milestones, list items become steps, <code>- [x]</code> marks done, and{" "}
+          <code>[text](link)</code> attaches a resource.
+        </span>
+      </p>
+      <Field label="Markdown">
+        <Textarea
+          rows={8}
+          value={md}
+          onChange={(e) => setMd(e.target.value)}
+          placeholder={
+            "## Fundamentals\n- [Intro to GPIO](https://…)\n- [ ] UART\n\n## Peripherals\n- SPI\n- I2C"
+          }
+        />
+      </Field>
+      <div className="flex gap-3">
+        <Field label="Title" hint="Defaults to the first # heading.">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={parsed.title}
+          />
+        </Field>
+        <Field label="Source link">
+          <Input
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="https://roadmap.sh/…"
+          />
+        </Field>
+      </div>
+      <Field label="Color">
+        <div className="flex gap-2">
+          {COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setColor(c)}
+              aria-label={`color ${c}`}
+              className={`h-8 w-8 rounded-full ring-2 ring-offset-2 transition dark:ring-offset-slate-900 ${
+                color === c ? "ring-slate-400" : "ring-transparent"
+              }`}
+              style={{ background: c }}
+            />
+          ))}
+        </div>
+      </Field>
+      {md.trim() ? (
+        <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
+          {parsed.stepCount ? (
+            <>
+              <p className="font-medium text-slate-700 dark:text-slate-200">
+                Preview: {parsed.title}
+              </p>
+              <ul className="mt-1 space-y-0.5 text-slate-500">
+                {parsed.milestones.map((m, i) => (
+                  <li key={i}>
+                    <span className="text-trail-600">{m.title}</span> — {m.steps.length} steps
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-slate-400">
+              No steps found yet — add some headings and list items above.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
 export default function Roadmaps({ ctx }) {
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const tree = roadmapTree(ctx.state);
   const active = tree.filter((r) => !r.archived);
   const archived = tree.filter((r) => r.archived);
@@ -349,9 +553,14 @@ export default function Roadmaps({ ctx }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Roadmaps</h2>
-        <Button onClick={() => setAdding(true)}>
-          <Plus size={16} /> New
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="subtle" onClick={() => setImporting(true)}>
+            <Upload size={16} /> Import
+          </Button>
+          <Button onClick={() => setAdding(true)}>
+            <Plus size={16} /> New
+          </Button>
+        </div>
       </div>
 
       {tree.length === 0 ? (
@@ -359,9 +568,14 @@ export default function Roadmaps({ ctx }) {
           icon={Map}
           title="No roadmaps yet"
           action={
-            <Button onClick={() => setAdding(true)}>
-              <Plus size={16} /> Add your first roadmap
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="subtle" onClick={() => setImporting(true)}>
+                <Upload size={16} /> Import Markdown
+              </Button>
+              <Button onClick={() => setAdding(true)}>
+                <Plus size={16} /> New roadmap
+              </Button>
+            </div>
           }
         >
           Drop in a learning path — a roadmap.sh track, a GitHub roadmap, a book — and break it into
@@ -388,6 +602,7 @@ export default function Roadmaps({ ctx }) {
       )}
 
       {adding && <NewRoadmapModal ctx={ctx} onClose={() => setAdding(false)} />}
+      {importing && <ImportRoadmapModal ctx={ctx} onClose={() => setImporting(false)} />}
     </div>
   );
 }
