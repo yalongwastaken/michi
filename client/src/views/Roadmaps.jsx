@@ -62,7 +62,7 @@ function MoveButtons({ canUp, canDown, onMove, busy }) {
         disabled={busy || !canUp}
         onClick={() => onMove(-1)}
         aria-label="Move up"
-        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 dark:hover:text-slate-200"
+        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
       >
         <ChevronUp size={14} />
       </button>
@@ -70,7 +70,7 @@ function MoveButtons({ canUp, canDown, onMove, busy }) {
         disabled={busy || !canDown}
         onClick={() => onMove(1)}
         aria-label="Move down"
-        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 dark:hover:text-slate-200"
+        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
       >
         <ChevronDown size={14} />
       </button>
@@ -111,7 +111,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy
           href={step.resourceUrl}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 text-slate-400 hover:text-trail-600"
+          className="shrink-0 p-1 text-slate-400 hover:text-trail-600"
           aria-label="Open resource"
         >
           <ExternalLink size={14} />
@@ -122,7 +122,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy
         disabled={busy}
         onClick={() => onDelete(step)}
         aria-label="Delete step"
-        className="shrink-0 text-slate-300 transition hover:text-rose-500"
+        className="shrink-0 p-1 text-slate-400 transition hover:text-rose-500"
       >
         <Trash2 size={14} />
       </button>
@@ -147,6 +147,7 @@ function AddInline({ placeholder, onAdd, busy }) {
         value={v}
         onChange={(e) => setV(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="flex-1 rounded-lg border border-transparent bg-slate-100 px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-trail-300 focus:bg-white focus:outline-none dark:bg-slate-800 dark:focus:bg-slate-800"
       />
       <button

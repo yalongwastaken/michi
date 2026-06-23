@@ -1,6 +1,6 @@
 {
   "name": "michi-client",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Personal learning-coach frontend (Vite + React thin client).",

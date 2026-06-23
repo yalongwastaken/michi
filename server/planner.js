@@ -119,10 +119,12 @@ export function planDay(state, opts = {}) {
   const items = [];
   let used = 0;
   const taskMin = (t) => (Number.isFinite(Number(t.estMin)) ? Number(t.estMin) : taskDefaultMin);
+  // a line's time cost — note 0 is a valid estimate, so don't fall through on it
+  const cost = (line) => (Number.isFinite(line.estMin) ? line.estMin : defaultStepMin);
   const remaining = () => budgetMin - used;
   const push = (line) => {
     items.push(line);
-    used += line.estMin || defaultStepMin;
+    used += cost(line);
   };
 
   // ── 1. obligations: overdue + due-today tasks (recurring tasks due today too).
@@ -182,8 +184,7 @@ export function planDay(state, opts = {}) {
   for (const id of deadlineIds) {
     const q = queues.get(id);
     for (let i = 0; i < q.perDay && q.steps.length; i++) {
-      const cost = q.steps[0].estMin || defaultStepMin;
-      if (remaining() < cost) {
+      if (remaining() < cost(q.steps[0])) {
         break;
       }
       const line = q.steps.shift();
@@ -224,12 +225,9 @@ export function planDay(state, opts = {}) {
     progress = false;
     for (const lane of laneOrder) {
       const q = queues.get(lane)?.steps;
-      if (q && q.length) {
-        const cost = q[0].estMin || defaultStepMin;
-        if (remaining() >= cost) {
-          push(q.shift());
-          progress = true;
-        }
+      if (q && q.length && remaining() >= cost(q[0])) {
+        push(q.shift());
+        progress = true;
       }
     }
   }

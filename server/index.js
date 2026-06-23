@@ -20,6 +20,7 @@ import {
 import { buildToday, momentum, dayKey } from "./engine.js";
 import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
+import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
 
 // a valid calendar day string, else server-local today — so a malformed ?day= can't
@@ -185,6 +186,22 @@ app.get("/api/dashboard", (req, res, next) => {
       plan: planDay(state, planOpts(state, day)),
       insights: insights(state, { today: day }),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// a plain-text (or JSON) summary for a morning cron → local notifier (no cloud)
+app.get("/api/digest", (req, res, next) => {
+  try {
+    const state = getState();
+    const day = resolveDay(req.query.day);
+    const d = buildDigest(state, planOpts(state, day));
+    if (req.query.format === "text" || (req.get("accept") || "").includes("text/plain")) {
+      res.type("text/plain").send(d.text);
+    } else {
+      res.json(d);
+    }
   } catch (e) {
     next(e);
   }

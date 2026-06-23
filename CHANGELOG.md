@@ -3,6 +3,27 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.6.0] — 2026-06-23
+
+### Added
+
+- **Optimistic completion.** Checking a task/step on Today flips instantly, then
+  reconciles with the server — no wait on a phone over Tailscale; failures roll back.
+- **Morning digest.** `GET /api/digest?format=text` returns a plain-text summary
+  (streak + plan + a nudge) for a local cron → notifier. Fully local, no cloud.
+- **Accessibility pass.** Bottom tabs expose `aria-current`; the modal restores focus
+  to its trigger on close; the heatmap has a text alternative (`role="img"`); the error
+  banner is a live region; larger tap targets; inactive-tab contrast bumped; safe-area
+  padding on the nav.
+
+### Hardening (from a deeper audit)
+
+- **Property-based fuzzing** of the planner (600 random states) — caught and fixed a
+  real bug where a 0-minute estimate made `plannedMin` overcount the budget.
+- **Parser fuzzing** (3000+ random/adversarial inputs) confirms the markdown and
+  natural-language parsers never throw.
+- The render smoke test now also asserts **every control has an accessible name**.
+
 ## [0.5.0] — 2026-06-23
 
 ### Added

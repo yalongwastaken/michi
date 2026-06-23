@@ -128,13 +128,13 @@ function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
       </div>
       <div className="flex shrink-0 items-center">
         {onSkip ? (
-          <IconButton label="Not today" className="h-7 w-7" onClick={() => onSkip(item)}>
-            <CalendarClock size={14} />
+          <IconButton label="Not today" className="h-9 w-9" onClick={() => onSkip(item)}>
+            <CalendarClock size={15} />
           </IconButton>
         ) : null}
         {onEdit && !isStep ? (
-          <IconButton label="Edit task" className="h-7 w-7" onClick={() => onEdit(item)}>
-            <Pencil size={14} />
+          <IconButton label="Edit task" className="h-9 w-9" onClick={() => onEdit(item)}>
+            <Pencil size={15} />
           </IconButton>
         ) : null}
       </div>

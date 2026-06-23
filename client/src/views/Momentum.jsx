@@ -24,10 +24,16 @@ function Heatmap({ heat = [] }) {
   for (let i = 0; i < cells.length; i += 7) {
     weeks.push(cells.slice(i, i + 7));
   }
+  const total = heat.reduce((a, c) => a + c.count, 0);
+  const activeDays = heat.filter((c) => c.count > 0).length;
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1">
+    <div
+      role="img"
+      aria-label={`Activity over the last ${heat.length} days: ${activeDays} active days, ${total} completed.`}
+      className="flex gap-1 overflow-x-auto pb-1"
+    >
       {weeks.map((week, wi) => (
-        <div key={wi} className="flex flex-col gap-1">
+        <div key={wi} className="flex flex-col gap-1" aria-hidden="true">
           {week.map((cell, di) => (
             <div
               key={di}
