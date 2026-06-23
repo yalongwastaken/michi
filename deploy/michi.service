@@ -1,0 +1,16 @@
+[Unit]
+Description=Michi learning coach
+After=network.target
+
+[Service]
+Type=simple
+# adjust the path + user to wherever you put the repo
+WorkingDirectory=/home/youruser/michi/server
+ExecStart=/usr/bin/node --experimental-sqlite index.js
+Environment=PORT=4001
+Environment=HOST=0.0.0.0
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

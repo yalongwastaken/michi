@@ -1,0 +1,29 @@
+# ── dependencies ─────────────────────────────────────────────
+node_modules/
+
+# ── build output ─────────────────────────────────────────────
+client/dist/
+client/test/.tmp/
+*.timestamp-*.mjs
+.vite/
+
+# ── SQLite data + backups (never commit personal data) ───────
+server/data/
+*.db
+*.db-wal
+*.db-shm
+backups/
+
+# ── logs / env ───────────────────────────────────────────────
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# ── editor / OS / FUSE cruft ─────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+.fuse_hidden*
