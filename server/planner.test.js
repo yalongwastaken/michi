@@ -122,6 +122,48 @@ test("a cheap task slots into a small leftover after a step", () => {
   assert.equal(p.plannedMin, 40);
 });
 
+test("pacing: a deadline pulls enough steps/day to finish in time", () => {
+  // 6 steps, deadline in 3 days (incl today) → ceil(6/3) = 2 per day
+  const r = roadmap("R", ["s1", "s2", "s3", "s4", "s5", "s6"]);
+  r.roadmaps[0].targetDate = "2026-06-25"; // today=23 → 3 days
+  const s = state(r);
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 300, defaultStepMin: 30 });
+  const paced = p.items.filter((i) => i.reason === "pace");
+  assert.equal(paced.length, 2);
+  assert.equal(p.counts.pace, 2);
+});
+
+test("pacing: most-urgent deadline goes first", () => {
+  const a = roadmap("A", ["a1"]);
+  const b = roadmap("B", ["b1"]);
+  a.roadmaps[0].targetDate = "2026-06-30";
+  b.roadmaps[0].targetDate = "2026-06-24"; // sooner
+  const s = state({
+    roadmaps: [...a.roadmaps, ...b.roadmaps],
+    milestones: [...a.milestones, ...b.milestones],
+    steps: [...a.steps, ...b.steps],
+  });
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 30, defaultStepMin: 30 });
+  assert.equal(p.items[0].roadmapId, "B");
+});
+
+test("per-roadmap step minutes drive the budget", () => {
+  const r = roadmap("R", ["s1", "s2", "s3"]);
+  r.roadmaps[0].stepMinutes = 45;
+  const s = state(r);
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 60, defaultStepMin: 30 });
+  assert.equal(p.items.length, 1); // 45 fits once; 90 would exceed 60
+  assert.equal(p.plannedMin, 45);
+});
+
+test("skip leaves an item out of the plan", () => {
+  const r = roadmap("R", ["s1", "s2"]);
+  const s = state(r);
+  const p = planDay(s, { today: "2026-06-23", budgetMin: 30, skip: ["step:s1"] });
+  assert.equal(p.items.length, 1);
+  assert.equal(p.items[0].id, "s2");
+});
+
 test("empty when there's nothing to do", () => {
   const p = planDay(state(), { today: "2026-06-23", budgetMin: 60 });
   assert.equal(p.items.length, 0);

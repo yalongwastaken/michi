@@ -31,7 +31,8 @@ export const api = {
   today: (day) => req(`/api/today${day ? `?day=${day}` : ""}`),
   momentum: (day) => req(`/api/momentum${day ? `?day=${day}` : ""}`),
   config: () => req("/api/config"),
-  plan: (day, { ai = false } = {}) => {
+  dashboard: (day) => req(`/api/dashboard${day ? `?day=${day}` : ""}`),
+  plan: (day, { ai = false, budget } = {}) => {
     const q = new URLSearchParams();
     if (day) {
       q.set("day", day);
@@ -39,9 +40,14 @@ export const api = {
     if (ai) {
       q.set("ai", "1");
     }
+    if (Number.isFinite(budget)) {
+      q.set("budget", String(budget));
+    }
     const qs = q.toString();
     return req(`/api/plan${qs ? `?${qs}` : ""}`);
   },
+  skipPlanItem: (kind, id, day, on = true) =>
+    req("/api/plan/skip", { method: "POST", body: JSON.stringify({ kind, id, day, on }) }),
   reset: () => req("/api/reset", { method: "POST" }),
   importState: (state) => req("/api/import", { method: "POST", body: JSON.stringify(state) }),
 };

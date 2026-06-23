@@ -100,7 +100,31 @@ export function Textarea(props) {
 export function Modal({ title, onClose, children, footer }) {
   const ref = useRef(null);
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose?.();
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        onClose?.();
+        return;
+      }
+      if (e.key !== "Tab") {
+        return;
+      }
+      // trap focus inside the dialog
+      const f = ref.current?.querySelectorAll(
+        'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!f || !f.length) {
+        return;
+      }
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
     ref.current?.focus();
     return () => document.removeEventListener("keydown", onKey);

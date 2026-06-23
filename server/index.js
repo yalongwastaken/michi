@@ -13,11 +13,27 @@ import {
   setDone,
   resetAll,
   replaceCompletions,
+  getPlanSkips,
+  setPlanSkip,
   ConflictError,
 } from "./db.js";
-import { buildToday, momentum } from "./engine.js";
+import { buildToday, momentum, dayKey } from "./engine.js";
 import { planDay } from "./planner.js";
+import { insights } from "./insights.js";
 import { aiConfig, refinePlan } from "./suggest.js";
+
+// shared planner options from settings (+ today's "not today" skips). `day` concrete.
+function planOpts(state, day, overrides = {}) {
+  const s = state.settings || {};
+  return {
+    today: day,
+    budgetMin: s.dailyMinutes,
+    defaultStepMin: s.defaultStepMin,
+    taskDefaultMin: s.taskDefaultMin,
+    skip: getPlanSkips(day),
+    ...overrides,
+  };
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -125,25 +141,41 @@ app.get("/api/momentum", (req, res) => {
 
 // the planner — a doable day from the whole picture. Deterministic by default;
 // with ?ai=1 (and MICHI_LLM enabled) a local model refines it, falling back to the
-// deterministic plan on any hiccup.
+// deterministic plan on any hiccup. ?budget= overrides the day's time budget.
 app.get("/api/plan", async (req, res, next) => {
   try {
     const state = getState();
-    const s = state.settings || {};
-    const day = typeof req.query.day === "string" ? req.query.day : undefined;
+    const day = typeof req.query.day === "string" ? req.query.day : dayKey();
     const qBudget = Number(req.query.budget);
-    const o = {
-      today: day,
-      budgetMin: Number.isFinite(qBudget) ? qBudget : s.dailyMinutes,
-      defaultStepMin: s.defaultStepMin,
-      taskDefaultMin: s.taskDefaultMin,
-    };
+    const o = planOpts(state, day, Number.isFinite(qBudget) ? { budgetMin: qBudget } : {});
     const plan = planDay(state, o);
     const wantAi = req.query.ai === "1" || req.query.ai === "true";
     res.json(wantAi ? await refinePlan(state, plan, { ...o, budgetMin: plan.budgetMin }) : plan);
   } catch (e) {
     next(e);
   }
+});
+
+// one round-trip for the whole Today screen: queue + momentum + plan + nudges
+app.get("/api/dashboard", (req, res) => {
+  const state = getState();
+  const day = typeof req.query.day === "string" ? req.query.day : dayKey();
+  res.json({
+    today: buildToday(state, { today: day }),
+    momentum: momentum(state, { today: day }),
+    plan: planDay(state, planOpts(state, day)),
+    insights: insights(state, { today: day }),
+  });
+});
+
+// "not today" — push a plan item off the day (or restore it with {on:false})
+app.post("/api/plan/skip", (req, res) => {
+  const { kind, id, day, on = true } = req.body || {};
+  if ((kind !== "task" && kind !== "step") || !id) {
+    return res.status(400).json({ error: "need kind ('task'|'step') and id" });
+  }
+  setPlanSkip(day || dayKey(), kind, id, !!on);
+  res.json(planDay(getState(), planOpts(getState(), day || dayKey())));
 });
 
 // wipe everything and start fresh (the Settings "danger zone")

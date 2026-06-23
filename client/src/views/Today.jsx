@@ -13,16 +13,21 @@ import {
   Timer,
   ChevronDown,
   ChevronRight,
+  CalendarClock,
+  Plus as PlusIcon,
+  Lightbulb,
 } from "lucide-react";
 import { Card, Button, Input, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
+import { parseQuickAdd } from "../lib/quickadd.js";
 import TaskModal from "./TaskModal.jsx";
 
 // chips that explain why an item is in today's plan
 const REASON = {
   overdue: { label: "overdue", cls: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
   due: { label: "due", cls: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
+  pace: { label: "deadline", cls: "bg-rose-50 text-rose-600 dark:bg-rose-950/40" },
   continue: {
     label: "continue",
     cls: "bg-iris-50 text-iris-600 dark:bg-slate-800 dark:text-iris-300",
@@ -51,11 +56,17 @@ function greeting() {
   return "Good evening";
 }
 
-function Row({ item, onToggle, busy, onEdit, showReason }) {
+function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
   const isStep = item.kind === "step";
   const done = item.status === "done";
   const reason = showReason
-    ? REASON[item.reason === "continue" || item.status === "doing" ? "continue" : item.reason]
+    ? REASON[
+        item.reason === "pace"
+          ? "pace"
+          : item.reason === "continue" || item.status === "doing"
+            ? "continue"
+            : item.reason
+      ]
     : null;
   return (
     <div className="group flex items-start gap-3 px-4 py-3">
@@ -115,15 +126,18 @@ function Row({ item, onToggle, busy, onEdit, showReason }) {
           {reason ? <Badge className={reason.cls}>{reason.label}</Badge> : null}
         </div>
       </div>
-      {onEdit && !isStep ? (
-        <IconButton
-          label="Edit task"
-          className="h-7 w-7 opacity-0 transition group-hover:opacity-100 focus:opacity-100"
-          onClick={() => onEdit(item)}
-        >
-          <Pencil size={14} />
-        </IconButton>
-      ) : null}
+      <div className="flex shrink-0 items-center">
+        {onSkip ? (
+          <IconButton label="Not today" className="h-7 w-7" onClick={() => onSkip(item)}>
+            <CalendarClock size={14} />
+          </IconButton>
+        ) : null}
+        {onEdit && !isStep ? (
+          <IconButton label="Edit task" className="h-7 w-7" onClick={() => onEdit(item)}>
+            <Pencil size={14} />
+          </IconButton>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -157,7 +171,7 @@ function Section({ title, icon: Icon, items, onToggle, busy, onEdit, tint = "tex
 const BUDGETS = [30, 60, 90, 120];
 
 function PlanCard({ ctx, onEdit }) {
-  const { plan, complete, save, replan, aiEnabled, busy } = ctx;
+  const { plan, complete, save, replan, skipPlanItem, aiEnabled, busy } = ctx;
   const [thinking, setThinking] = useState(false);
   if (!plan) {
     return null;
@@ -169,6 +183,7 @@ function PlanCard({ ctx, onEdit }) {
     await replan({ ai: true });
     setThinking(false);
   };
+  const oneMore = () => replan({ budget: (plan.plannedMin || budget) + 30 });
 
   return (
     <Card className="overflow-hidden">
@@ -207,9 +222,17 @@ function PlanCard({ ctx, onEdit }) {
               onToggle={complete}
               busy={busy}
               onEdit={onEdit}
+              onSkip={(x) => skipPlanItem(x.kind, x.id, true)}
               showReason
             />
           ))}
+          <button
+            onClick={oneMore}
+            disabled={busy}
+            className="flex w-full items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-slate-400 hover:text-trail-600"
+          >
+            <PlusIcon size={14} /> one more
+          </button>
         </div>
       )}
 
@@ -239,6 +262,30 @@ function PlanCard({ ctx, onEdit }) {
   );
 }
 
+function Nudges({ items }) {
+  if (!items?.length) {
+    return null;
+  }
+  const tone = {
+    warn: "text-rose-600",
+    good: "text-trail-600",
+    info: "text-iris-600",
+  };
+  return (
+    <div className="space-y-1.5">
+      {items.map((n, i) => (
+        <div
+          key={i}
+          className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60"
+        >
+          <Lightbulb size={15} className={`mt-0.5 shrink-0 ${tone[n.tone] || "text-slate-400"}`} />
+          <span className="text-slate-600 dark:text-slate-300">{n.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Today({ ctx }) {
   const { today, momentum, complete, addTask, busy, state } = ctx;
   const [text, setText] = useState("");
@@ -259,12 +306,21 @@ export default function Today({ ctx }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    const title = text.trim();
-    if (!title) {
+    if (!text.trim()) {
       return;
     }
+    // parse natural language: "read SPI 30m tomorrow" → title + due + estimate + repeat
+    const p = parseQuickAdd(text, { today: today.day });
+    const title = p.title || text.trim();
     setText("");
-    await addTask({ id: uid("task"), title, due: today.day });
+    await addTask({
+      id: uid("task"),
+      status: "todo",
+      title,
+      due: p.due || (p.recurrence ? null : today.day),
+      estMin: p.estMin ?? null,
+      recurrence: p.recurrence ?? null,
+    });
   };
 
   const goal = momentum?.dailyGoal ?? 3;
@@ -299,11 +355,13 @@ export default function Today({ ctx }) {
         </div>
       </div>
 
+      <Nudges items={ctx.nudges} />
+
       <form onSubmit={submit} className="flex gap-2">
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Add a task for today…"
+          placeholder="Add a task… e.g. “read SPI 30m tomorrow”"
           aria-label="New task"
         />
         <IconButton

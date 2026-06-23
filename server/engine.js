@@ -12,7 +12,7 @@ export function dayKey(d = new Date()) {
 }
 
 /** Day-of-week 0..6 (Sun..Sat) for a YYYY-MM-DD string, in a tz-stable way. */
-function dow(dayStr) {
+export function dow(dayStr) {
   // append midday UTC so DST / tz never shifts the calendar day
   return new Date(`${dayStr}T12:00:00Z`).getUTCDay();
 }
@@ -24,7 +24,7 @@ function dow(dayStr) {
  * and the heatmap aligned with `dayKey()` (also local); slicing the raw UTC string
  * would mis-file evening completions for anyone west of UTC.
  */
-function localDay(iso) {
+export function localDay(iso) {
   return iso ? dayKey(new Date(iso)) : null;
 }
 
@@ -66,7 +66,7 @@ function taskLine(task, forceTodo = false) {
  * Is a recurring task "due" on `today`?  daily → always; weekdays → Mon–Fri;
  * weekly → same weekday as its anchor `due` (or any day if no anchor set).
  */
-function recurringDueToday(task, today) {
+export function recurringDueToday(task, today) {
   if (task.recurrence === "daily") {
     return true;
   }
