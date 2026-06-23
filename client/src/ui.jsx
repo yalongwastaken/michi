@@ -75,7 +75,7 @@ export function Field({ label, children, hint }) {
         {label}
       </span>
       {children}
-      {hint ? <span className="mt-1 block text-xs text-slate-400">{hint}</span> : null}
+      {hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
     </label>
   );
 }
@@ -168,7 +168,9 @@ export function EmptyState({ icon: Icon, title, children, action }) {
         </div>
       ) : null}
       <h3 className="text-base font-semibold text-slate-700 dark:text-slate-200">{title}</h3>
-      {children ? <p className="max-w-xs text-sm text-slate-500">{children}</p> : null}
+      {children ? (
+        <p className="max-w-xs text-sm text-slate-500 dark:text-slate-400">{children}</p>
+      ) : null}
       {action}
     </div>
   );

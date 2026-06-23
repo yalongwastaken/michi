@@ -1,6 +1,6 @@
 {
   "name": "michi",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Personal learning coach — repo-level tooling (formatting + linting).",

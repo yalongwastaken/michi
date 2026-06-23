@@ -13,6 +13,7 @@ import {
 } from "../ui.jsx";
 import { uid } from "../lib/uid.js";
 import { shortDate } from "../lib/format.js";
+import { focusMainHeading } from "../lib/a11y.js";
 
 const FLOW = ["idea", "active", "shipped"];
 const META = {
@@ -50,10 +51,12 @@ function ProjectCard({ p, ctx }) {
       }
     });
 
-  const remove = () =>
-    save((s) => {
+  const remove = async () => {
+    await save((s) => {
       s.projects = s.projects.filter((x) => x.id !== p.id);
     });
+    focusMainHeading();
+  };
 
   return (
     <Card className="p-4">
