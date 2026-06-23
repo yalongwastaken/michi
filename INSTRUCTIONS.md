@@ -51,7 +51,7 @@ repo:
 
 ```bash
 sudo cp deploy/michi.service /etc/systemd/system/michi.service
-sudo nano /etc/systemd/system/michi.service     # set WorkingDirectory + User
+sudo nano /etc/systemd/system/michi.service     # set WorkingDirectory, User, and TZ
 sudo systemctl daemon-reload
 sudo systemctl enable --now michi.service
 sudo systemctl status michi.service

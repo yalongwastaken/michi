@@ -67,6 +67,20 @@ test("refinePlan uses the model's choice when enabled", async () => {
   delete process.env.MICHI_LLM;
 });
 
+test("refinePlan resolves the endpoint against MICHI_LLM_URL (no path mangling)", async () => {
+  process.env.MICHI_LLM = "1";
+  process.env.MICHI_LLM_URL = "http://10.0.0.5:11434/base?x=1";
+  let seen = null;
+  const capture = async (url) => {
+    seen = url;
+    return { ok: true, json: async () => ({ message: { content: '{"items":["step:s1"]}' } }) };
+  };
+  await refinePlan(sampleState(), draft, { today: "2026-06-23" }, { fetch: capture });
+  assert.equal(seen, "http://10.0.0.5:11434/api/chat");
+  delete process.env.MICHI_LLM;
+  delete process.env.MICHI_LLM_URL;
+});
+
 test("refinePlan falls back to the draft when the model errors/times out", async () => {
   process.env.MICHI_LLM = "1";
   const boom = async () => {

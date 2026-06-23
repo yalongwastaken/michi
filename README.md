@@ -135,20 +135,20 @@ make test         # server engine/db tests + client lib tests
 
 ## API
 
-| Method | Path            | Purpose                                             |
-| ------ | --------------- | --------------------------------------------------- |
-| GET    | `/api/health`   | liveness check                                      |
-| GET    | `/api/state`    | full unified model                                  |
-| PUT    | `/api/state`    | replace the full model (the client's "save")        |
-| POST   | `/api/tasks`    | append a single task (lean write)                   |
-| POST   | `/api/complete` | toggle a task/step done (`{kind,id,done}`)          |
-| GET    | `/api/today`    | the focused daily queue (`?day=`, `?limit=`)        |
+| Method | Path            | Purpose                                                      |
+| ------ | --------------- | ------------------------------------------------------------ |
+| GET    | `/api/health`   | liveness check                                               |
+| GET    | `/api/state`    | full unified model                                           |
+| PUT    | `/api/state`    | replace the full model (the client's "save")                 |
+| POST   | `/api/tasks`    | append a single task (lean write)                            |
+| POST   | `/api/complete` | toggle a task/step done (`{kind,id,done}`)                   |
+| GET    | `/api/today`    | the focused daily queue (`?day=`, `?limit=`)                 |
 | GET    | `/api/plan`     | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`) |
-| GET    | `/api/momentum` | streak, heatmap, roadmap/project progress (`?day=`) |
-| GET    | `/api/config`   | client capability probe (whether the local model is on) |
-| GET    | `/api/export`   | download the full model as JSON                     |
-| POST   | `/api/import`   | replace the model from an exported JSON             |
-| POST   | `/api/reset`    | wipe everything and start fresh                     |
+| GET    | `/api/momentum` | streak, heatmap, roadmap/project progress (`?day=`)          |
+| GET    | `/api/config`   | client capability probe (whether the local model is on)      |
+| GET    | `/api/export`   | download the full model as JSON                              |
+| POST   | `/api/import`   | replace the model from an exported JSON                      |
+| POST   | `/api/reset`    | wipe everything and start fresh                              |
 
 ## License
 
