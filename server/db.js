@@ -110,6 +110,9 @@ const DEFAULT_SETTINGS = {
   theme: "system", // system | light | dark
   dailyGoal: 3, // completions/day that count as "hit your goal"
   streakFreezes: 2, // missed days the streak can bridge before it breaks
+  dailyMinutes: 60, // the planner's daily time budget
+  defaultStepMin: 30, // assumed effort for a roadmap step with no estimate
+  taskDefaultMin: 20, // assumed effort for a task with no estimate
 };
 
 const STEP_STATUS = new Set(["todo", "doing", "done"]);

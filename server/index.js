@@ -16,6 +16,8 @@ import {
   ConflictError,
 } from "./db.js";
 import { buildToday, momentum } from "./engine.js";
+import { planDay } from "./planner.js";
+import { aiConfig, refinePlan } from "./suggest.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -47,6 +49,13 @@ app.use((req, res, next) => {
 
 // ── API ─────────────────────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// client capability probe — lets the UI show the "Smarter plan" action only when a
+// local model is configured. Reports model name but never any secrets.
+app.get("/api/config", (_req, res) => {
+  const cfg = aiConfig();
+  res.json({ ai: cfg.enabled, model: cfg.enabled ? cfg.model : null });
+});
 
 // full model (client loads this once on boot)
 app.get("/api/state", (_req, res) => res.json(getState()));
@@ -112,6 +121,29 @@ app.get("/api/today", (req, res) => {
 app.get("/api/momentum", (req, res) => {
   const today = typeof req.query.day === "string" ? req.query.day : undefined;
   res.json(momentum(getState(), { today }));
+});
+
+// the planner — a doable day from the whole picture. Deterministic by default;
+// with ?ai=1 (and MICHI_LLM enabled) a local model refines it, falling back to the
+// deterministic plan on any hiccup.
+app.get("/api/plan", async (req, res, next) => {
+  try {
+    const state = getState();
+    const s = state.settings || {};
+    const day = typeof req.query.day === "string" ? req.query.day : undefined;
+    const qBudget = Number(req.query.budget);
+    const o = {
+      today: day,
+      budgetMin: Number.isFinite(qBudget) ? qBudget : s.dailyMinutes,
+      defaultStepMin: s.defaultStepMin,
+      taskDefaultMin: s.taskDefaultMin,
+    };
+    const plan = planDay(state, o);
+    const wantAi = req.query.ai === "1" || req.query.ai === "true";
+    res.json(wantAi ? await refinePlan(state, plan, { ...o, budgetMin: plan.budgetMin }) : plan);
+  } catch (e) {
+    next(e);
+  }
 });
 
 // wipe everything and start fresh (the Settings "danger zone")

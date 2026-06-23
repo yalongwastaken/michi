@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.2.0** · self-hosted · single-user · no cloud, no AI in the product
+**v0.3.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -18,8 +18,10 @@ roadmaps, courses, books, half-started repos. Michi gives them structure and a d
 front door.
 
 - **Roadmaps** — a learning path broken into **milestones → steps**. Track % complete.
-- **Today** — the home screen. A focused daily queue: overdue and due tasks, plus the
-  _next step_ from each active roadmap. "What should I work on today?"
+- **Today** — the home screen. A **planner** looks at the whole picture (what's due,
+  what's in progress, which roadmaps are being neglected, your streak) and assembles a
+  _doable day_ that fits a time budget you set — instead of making you decide. "What
+  should I work on today?", answered.
 - **Projects** — the meaningful things you want to build/ship, moved from idea →
   in progress → shipped (because learning sticks when you build).
 - **Momentum** — a streak, a contribution-style heatmap, longest streak, active days,
@@ -77,6 +79,33 @@ two run side by side on the same box without colliding. Configuration via enviro
 
 Michi makes **no outbound network calls** — everything is local.
 
+### Optional: a smarter planner with a local model
+
+By default the planner is a fast, deterministic rules engine (no dependencies, no
+model). If you want fuzzier judgment, point Michi at a **local** model and a "✨
+Smarter plan" button appears on Today: it hands the model the full picture plus the
+planner's draft and lets it re-pick the day, falling back to the deterministic plan on
+any hiccup. Your data still never leaves the box — this is a `localhost` call to a
+model you run.
+
+```bash
+# one-time: install Ollama on the mini PC and pull a small model
+ollama pull llama3.2:3b
+
+# then run Michi with the model layer enabled
+MICHI_LLM=1 make start
+```
+
+| Variable          | Default                  | Purpose                              |
+| ----------------- | ------------------------ | ------------------------------------ |
+| `MICHI_LLM`       | _(off)_                  | set to `1` to enable the model layer |
+| `MICHI_LLM_MODEL` | `llama3.2:3b`            | which local model to ask             |
+| `MICHI_LLM_URL`   | `http://localhost:11434` | the local Ollama endpoint            |
+
+Your whole dataset is only kilobytes, so it fits in any model's context window in full
+— even a small 1–3B model sees everything at once. Bigger models just reason a bit
+better; the deterministic planner is always the safety net.
+
 ## Reach it from your phone (Tailscale) + install as an app
 
 Same as Tsumiki: install Tailscale on the mini PC and your phone, then open
@@ -114,7 +143,9 @@ make test         # server engine/db tests + client lib tests
 | POST   | `/api/tasks`    | append a single task (lean write)                   |
 | POST   | `/api/complete` | toggle a task/step done (`{kind,id,done}`)          |
 | GET    | `/api/today`    | the focused daily queue (`?day=`, `?limit=`)        |
+| GET    | `/api/plan`     | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`) |
 | GET    | `/api/momentum` | streak, heatmap, roadmap/project progress (`?day=`) |
+| GET    | `/api/config`   | client capability probe (whether the local model is on) |
 | GET    | `/api/export`   | download the full model as JSON                     |
 | POST   | `/api/import`   | replace the model from an exported JSON             |
 | POST   | `/api/reset`    | wipe everything and start fresh                     |
