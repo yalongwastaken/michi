@@ -85,7 +85,7 @@ export default function Momentum({ ctx }) {
                 : `${m.todayCount}/${m.dailyGoal} toward today's goal.`}
           </p>
           {streak.freezes ? (
-            <p className="mt-1 inline-flex items-center gap-1 text-xs text-sky-500">
+            <p className="mt-1 inline-flex items-center gap-1 text-xs text-iris-500">
               <Snowflake size={12} /> {streak.freezes - streak.freezesUsed} of {streak.freezes}{" "}
               freezes left
             </p>
@@ -93,7 +93,7 @@ export default function Momentum({ ctx }) {
         </div>
         <Flame
           size={56}
-          className={streak.atRisk ? "text-slate-300" : "text-ember-500"}
+          className={streak.atRisk ? "text-slate-300" : "text-iris-500"}
           strokeWidth={1.5}
         />
       </Card>
@@ -103,7 +103,7 @@ export default function Momentum({ ctx }) {
           icon={Trophy}
           label="longest"
           value={streak.longest}
-          tint="bg-amber-50 text-amber-500 dark:bg-amber-950/40"
+          tint="bg-iris-50 text-iris-600 dark:bg-iris-950/40"
         />
         <Stat
           icon={CalendarCheck}

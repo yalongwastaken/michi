@@ -5,8 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        // "trail" — emerald/jade primary. Deliberately distinct from Tsumiki's violet:
-        // money is violet, the learning path is green (growth, go, forward).
+        // Michi's two core colors are balanced and complementary:
+        //   trail (emerald green) = activity & progress — showing up, moving forward
+        //   iris  (violet)        = streaks & achievement — momentum, milestones
+        // Green ~150° and violet ~265° on the wheel sit a harmonious ~115° apart, so
+        // they energize each other without clashing. (Iris is its own purple, clear
+        // of Tsumiki's blue-violet periwinkle.)
         trail: {
           50: "#ECFDF5",
           100: "#D1FAE5",
@@ -19,11 +23,17 @@ export default {
           800: "#065F46",
           900: "#064E3B",
         },
-        // warm amber accent for streaks / momentum (the "fire")
-        ember: {
-          400: "#FBBF24",
-          500: "#F59E0B",
-          600: "#D97706",
+        iris: {
+          50: "#F5F3FF",
+          100: "#EDE9FE",
+          200: "#DDD6FE",
+          300: "#C4B5FD",
+          400: "#A78BFA",
+          500: "#8B5CF6",
+          600: "#7C3AED",
+          700: "#6D28D9",
+          800: "#5B21B6",
+          900: "#4C1D95",
         },
         // warm sand surface so it doesn't feel like a cold finance dashboard
         sand: {

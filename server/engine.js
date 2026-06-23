@@ -17,6 +17,17 @@ function dow(dayStr) {
   return new Date(`${dayStr}T12:00:00Z`).getUTCDay();
 }
 
+/**
+ * Local calendar day (YYYY-MM-DD) for a stored ISO timestamp. done_at is stamped
+ * in UTC, but everything the user sees is bucketed by *their* day — and the mini PC
+ * runs in their timezone. Bucketing here with the server's local tz keeps streaks
+ * and the heatmap aligned with `dayKey()` (also local); slicing the raw UTC string
+ * would mis-file evening completions for anyone west of UTC.
+ */
+function localDay(iso) {
+  return iso ? dayKey(new Date(iso)) : null;
+}
+
 /** Step → minimal shape the client renders in the queue. */
 function stepLine(step, milestone, roadmap) {
   return {
@@ -32,13 +43,17 @@ function stepLine(step, milestone, roadmap) {
   };
 }
 
-/** Task → minimal shape the client renders in the queue. */
-function taskLine(task) {
+/**
+ * Task → minimal shape the client renders in the queue. `forceTodo` presents a
+ * recurring task that's pending for today as actionable, even though its stored
+ * status may still be "done" from a previous day's completion.
+ */
+function taskLine(task, forceTodo = false) {
   return {
     kind: "task",
     id: task.id,
     title: task.title,
-    status: task.status,
+    status: forceTodo ? "todo" : task.status,
     due: task.due || null,
     recurrence: task.recurrence || null,
     estMin: task.estMin ?? null,
@@ -60,14 +75,16 @@ function recurringDueToday(task, today) {
     return d >= 1 && d <= 5;
   }
   if (task.recurrence === "weekly") {
-    return !task.due || dow(task.due) === dow(today);
+    // weekly needs an anchor date to know which weekday it repeats on; without
+    // one it would match every day (i.e. behave like "daily"), so treat as not-due
+    return task.due ? dow(task.due) === dow(today) : false;
   }
   return false;
 }
 
 /** Was a (possibly recurring) task already completed on `today`? */
 function doneToday(task, today) {
-  return task.status === "done" && (task.doneAt || "").slice(0, 10) === today;
+  return task.status === "done" && localDay(task.doneAt) === today;
 }
 
 /**
@@ -93,14 +110,21 @@ export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
       doneTodayList.push(taskLine(t));
       continue;
     }
-    if (t.status === "done" && !t.recurrence) {
+    if (t.recurrence) {
+      // recurring tasks live entirely off their cadence — their `due` is just a
+      // weekly anchor, never an "overdue" date. Surface as actionable for today.
+      if (recurringDueToday(t, today)) {
+        dueToday.push(taskLine(t, true));
+      }
+      continue;
+    }
+    if (t.status === "done") {
       continue; // finished one-off — not on the queue
     }
-    const isRecurringDue = t.recurrence && recurringDueToday(t, today);
     if (t.due && t.due < today) {
       overdue.push(taskLine(t));
-    } else if (t.due === today || isRecurringDue || (!t.due && !t.recurrence)) {
-      // explicit today, a recurring hit, or a loose backlog task with no date
+    } else if (t.due === today || !t.due) {
+      // explicit today, or a loose backlog task with no date
       dueToday.push(taskLine(t));
     }
   }
@@ -146,25 +170,18 @@ export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
   };
 }
 
-/** Set of YYYY-MM-DD days with ≥1 completion (tasks done_at + steps done_at). */
+/**
+ * Map of local-day → completion count, read from the append-only completions log.
+ * The log already buckets each event by the local day it happened, so recurring
+ * habits accumulate real history (one mutable done_at column never could).
+ */
 export function activityByDay(state) {
   const counts = new Map();
-  const add = (iso) => {
-    if (!iso) {
-      return;
+  for (const c of state.completions || []) {
+    if (!c?.day) {
+      continue;
     }
-    const day = iso.slice(0, 10);
-    counts.set(day, (counts.get(day) || 0) + 1);
-  };
-  for (const t of state.tasks || []) {
-    if (t.status === "done") {
-      add(t.doneAt);
-    }
-  }
-  for (const s of state.steps || []) {
-    if (s.status === "done") {
-      add(s.doneAt);
-    }
+    counts.set(c.day, (counts.get(c.day) || 0) + 1);
   }
   return counts;
 }
@@ -186,6 +203,7 @@ export function computeStreak(daySet, today, freezes = 0) {
   let cursor = today;
   let current = 0;
   let freezesUsed = 0;
+  let pending = 0; // freezes tentatively spent on a gap, not yet "earned"
   let atRisk = false;
 
   // if today isn't done yet, don't count or break on it — start from yesterday
@@ -196,20 +214,25 @@ export function computeStreak(daySet, today, freezes = 0) {
   for (;;) {
     if (daySet.has(cursor)) {
       current += 1;
+      freezesUsed += pending; // commit the bridges we crossed to reach this active day
+      pending = 0;
       cursor = prevDay(cursor);
-    } else if (freezesUsed < freezes) {
-      freezesUsed += 1; // bridge the gap with a freeze
+    } else if (freezesUsed + pending < freezes) {
+      pending += 1; // tentatively bridge the gap; only counts if an active day follows
       cursor = prevDay(cursor);
     } else {
       break;
     }
   }
+  // trailing `pending` freezes ran off the end of history → never bridged anything
   return { current, atRisk, freezesUsed };
 }
 
 /** Longest run of consecutive active days anywhere in history (no freezes). */
 export function longestStreak(daySet) {
-  const days = [...daySet].sort();
+  // .keys() yields day strings for both a Set and the Map momentum() passes in
+  // (spreading a Map directly would yield [key,value] pairs — a subtle trap)
+  const days = [...daySet.keys()].sort();
   let longest = 0;
   let run = 0;
   let prev = null;

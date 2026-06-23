@@ -42,9 +42,7 @@ function StepRow({ step, onDone, onDoing, onDelete, busy }) {
         }`}
       >
         {step.title}
-        {doing ? (
-          <span className="ml-2 text-xs font-medium text-ember-500">in progress</span>
-        ) : null}
+        {doing ? <span className="ml-2 text-xs font-medium text-iris-500">in progress</span> : null}
       </span>
       {step.resourceUrl ? (
         <a
@@ -62,7 +60,7 @@ function StepRow({ step, onDone, onDoing, onDelete, busy }) {
           disabled={busy}
           onClick={() => onDoing(step, !doing)}
           aria-label={doing ? "Pause" : "Start"}
-          className="text-slate-300 hover:text-ember-500"
+          className="text-slate-300 hover:text-iris-500"
         >
           {doing ? <Pause size={15} /> : <Play size={15} />}
         </button>

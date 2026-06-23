@@ -1,5 +1,8 @@
 // engine.test.js — unit tests for the Today queue + momentum/streak math.
 // Run with: node --experimental-sqlite --test  (see package.json "test").
+// Pin the timezone so day-bucketing of ISO timestamps is deterministic wherever
+// `make test` runs (the engine buckets done_at by the *local* day on purpose).
+process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -19,9 +22,15 @@ function state(over = {}) {
     steps: [],
     projects: [],
     tasks: [],
+    completions: [],
     settings: { dailyGoal: 3, streakFreezes: 2 },
     ...over,
   };
+}
+
+// completion-log row helper
+function done(day, kind = "task", refId = "x") {
+  return { id: `${kind}_${refId}_${day}`, day, kind, refId, ts: `${day}T12:00:00Z` };
 }
 
 test("buildToday: overdue, due-today and undated tasks all surface", () => {
@@ -124,18 +133,39 @@ test("computeStreak: freezes bridge a missed day", () => {
   assert.equal(withFreeze.freezesUsed, 1);
 });
 
+test("computeStreak: trailing gaps off the end of history don't spend freezes", () => {
+  // a brand-new 1-day streak shouldn't report freezes used (regression guard)
+  const r = computeStreak(new Set(["2026-06-23"]), "2026-06-23", 2);
+  assert.equal(r.current, 1);
+  assert.equal(r.freezesUsed, 0);
+});
+
 test("longestStreak: finds the longest historical run", () => {
   const days = new Set(["2026-01-01", "2026-01-02", "2026-01-03", "2026-02-01", "2026-02-02"]);
   assert.equal(longestStreak(days), 3);
 });
 
-test("activityByDay: counts both task and step completions", () => {
+test("activityByDay: counts completion-log events per day", () => {
   const s = state({
-    tasks: [{ id: "t", status: "done", doneAt: "2026-06-23T10:00:00Z" }],
-    steps: [{ id: "s", status: "done", doneAt: "2026-06-23T11:00:00Z" }],
+    completions: [done("2026-06-23", "task", "t"), done("2026-06-23", "step", "s")],
   });
   const counts = activityByDay(s);
   assert.equal(counts.get("2026-06-23"), 2);
+});
+
+test("activityByDay: a daily habit completed across days accumulates history", () => {
+  // regression guard for the single-done_at overwrite bug
+  const s = state({
+    tasks: [{ id: "h", title: "Read", recurrence: "daily", status: "done" }],
+    completions: [
+      done("2026-06-21", "task", "h"),
+      done("2026-06-22", "task", "h"),
+      done("2026-06-23", "task", "h"),
+    ],
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  assert.equal(m.daysActive, 3);
+  assert.equal(m.streak.current, 3);
 });
 
 test("roadmapProgress: percentage per roadmap", () => {
@@ -156,7 +186,7 @@ test("roadmapProgress: percentage per roadmap", () => {
 });
 
 test("momentum: heatmap is exactly heatDays long and ends today", () => {
-  const s = state({ tasks: [{ id: "t", status: "done", doneAt: "2026-06-23T10:00:00Z" }] });
+  const s = state({ completions: [done("2026-06-23", "task", "t")] });
   const m = momentum(s, { today: "2026-06-23", heatDays: 30 });
   assert.equal(m.heat.length, 30);
   assert.equal(m.heat[m.heat.length - 1].date, "2026-06-23");

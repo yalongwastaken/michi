@@ -78,6 +78,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
   CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status);
 
+  -- append-only activity log: one row per completion *event*, bucketed by the
+  -- local day it happened. This is the source of truth for streaks/heatmap, so a
+  -- recurring habit completed every day accumulates real history (a single mutable
+  -- done_at column can't — it just gets overwritten). Intentionally no FK to
+  -- tasks/steps: deleting a roadmap shouldn't erase the days you showed up.
+  CREATE TABLE IF NOT EXISTS completions (
+    id     TEXT PRIMARY KEY,
+    day    TEXT NOT NULL,                         -- local YYYY-MM-DD
+    kind   TEXT NOT NULL,                         -- task | step
+    ref_id TEXT NOT NULL,
+    ts     TEXT NOT NULL,                         -- full ISO timestamp
+    UNIQUE(kind, ref_id, day)                     -- at most one per item per day
+  );
+  CREATE INDEX IF NOT EXISTS idx_completions_day ON completions(day);
+
   -- flexible JSON blobs for the evolving profile + settings + rev
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -101,6 +116,19 @@ const STEP_STATUS = new Set(["todo", "doing", "done"]);
 const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
+
+/** Local YYYY-MM-DD for an ISO timestamp — the mini PC runs in the user's tz. */
+function localDayKey(iso) {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const newId = () =>
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Read a JSON blob from the meta table, or `fallback` if absent. */
 function getMeta(key, fallback) {
@@ -132,7 +160,7 @@ export function validateState(s) {
   if (!s || typeof s !== "object") {
     return "body must be an object";
   }
-  for (const k of ["roadmaps", "milestones", "steps", "projects", "tasks"]) {
+  for (const k of ["roadmaps", "milestones", "steps", "projects", "tasks", "completions"]) {
     if (s[k] != null && !Array.isArray(s[k])) {
       return `${k} must be an array`;
     }
@@ -239,6 +267,9 @@ export function getState() {
         "SELECT id, title, status, due, recurrence, step_id AS stepId, project_id AS projectId, est_min AS estMin, position, notes, created_at AS createdAt, done_at AS doneAt FROM tasks ORDER BY position, created_at",
       )
       .all(),
+    completions: db
+      .prepare("SELECT id, day, kind, ref_id AS refId, ts FROM completions ORDER BY ts")
+      .all(),
     profile: getMeta("profile", DEFAULT_PROFILE),
     settings: getMeta("settings", DEFAULT_SETTINGS),
   };
@@ -278,9 +309,10 @@ export function addTask(t) {
 }
 
 /**
- * Toggle completion of a task or a step. Sets status + done_at and bumps the rev.
- * Recurring tasks, when undone-then-redone, just re-stamp done_at (history is the
- * stream of done_at days, which the momentum engine reads).
+ * Toggle completion of a task or a step. Updates the item's current status +
+ * done_at (for display) AND records/removes an entry in the append-only
+ * `completions` log for the local day, which is what streaks/heatmap read. This is
+ * why a daily recurring habit accumulates history instead of overwriting one column.
  * @param {"task"|"step"} kind
  * @param {string} id
  * @param {boolean} done
@@ -289,6 +321,7 @@ export function addTask(t) {
  */
 export function setDone(kind, id, done, now = new Date().toISOString()) {
   const table = kind === "step" ? "steps" : "tasks";
+  const day = localDayKey(now);
   db.exec("BEGIN");
   try {
     const status = done ? "done" : "todo";
@@ -298,6 +331,19 @@ export function setDone(kind, id, done, now = new Date().toISOString()) {
       .run(status, doneAt, id);
     if (res.changes === 0) {
       throw new Error(`${kind} not found: ${id}`);
+    }
+    if (done) {
+      // one completion per item per local day (UNIQUE makes re-completes a no-op)
+      db.prepare(
+        "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(?, ?, ?, ?, ?)",
+      ).run(newId(), day, kind, id, now);
+    } else {
+      // undo only retracts today's credit, not historical days you already earned
+      db.prepare("DELETE FROM completions WHERE kind = ? AND ref_id = ? AND day = ?").run(
+        kind,
+        id,
+        day,
+      );
     }
     bumpRev();
     db.exec("COMMIT");
@@ -426,10 +472,38 @@ export function putState(state, expectedRev) {
 export function resetAll() {
   db.exec("BEGIN");
   try {
-    for (const t of ["tasks", "steps", "milestones", "roadmaps", "projects"]) {
+    for (const t of ["tasks", "steps", "milestones", "roadmaps", "projects", "completions"]) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
     db.prepare("DELETE FROM meta WHERE key IN ('profile', 'settings')").run();
+    bumpRev();
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return getState();
+}
+
+/**
+ * Replace the whole completion log from an array of rows. The everyday full-state
+ * PUT deliberately leaves completions untouched (they're server-owned history that
+ * client edits must never clobber); only a backup *import* rebuilds them, so a
+ * restored backup brings your streak history back with it.
+ */
+export function replaceCompletions(rows = []) {
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM completions").run();
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(@id, @day, @kind, @refId, @ts)",
+    );
+    for (const c of rows) {
+      if (!c?.day || !c?.kind || !c?.refId) {
+        continue; // skip malformed rows rather than fail the whole import
+      }
+      ins.run({ id: c.id || newId(), day: c.day, kind: c.kind, refId: c.refId, ts: c.ts || c.day });
+    }
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {

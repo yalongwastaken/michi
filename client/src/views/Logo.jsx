@@ -19,9 +19,9 @@ export function Logo({ className = "" }) {
         strokeLinecap="round"
       />
       <circle cx="120" cy="420" r="22" fill="#047857" />
-      <circle cx="240" cy="280" r="18" fill="#34D399" />
-      <circle cx="384" cy="150" r="26" fill="#F59E0B" />
-      <path d="M384 150 L384 96 L420 110 L384 124 Z" fill="#D97706" />
+      <circle cx="240" cy="280" r="18" fill="#A78BFA" />
+      <circle cx="384" cy="150" r="26" fill="#7C3AED" />
+      <path d="M384 150 L384 96 L420 110 L384 124 Z" fill="#6D28D9" />
     </svg>
   );
 }

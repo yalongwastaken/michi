@@ -154,7 +154,7 @@ export default function App({ onTheme }) {
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold ${
                   momentum.streak.atRisk
                     ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40"
-                    : "bg-ember-400/15 text-ember-600"
+                    : "bg-iris-500/15 text-iris-600 dark:text-iris-300"
                 }`}
                 title={momentum.streak.atRisk ? "do something today to keep it!" : "current streak"}
               >
