@@ -95,6 +95,9 @@ function doneToday(task, today) {
  * @param {number} [opts.limit] cap on suggested next-steps (default 5)
  */
 export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
+  // guard direct callers too: a negative limit would slice(0, -1) and silently
+  // drop suggestions from the end instead of capping them
+  const cap = Number.isFinite(limit) && limit >= 0 ? limit : 5;
   const tasks = state.tasks || [];
   const roadmaps = state.roadmaps || [];
   const milestones = state.milestones || [];
@@ -161,19 +164,19 @@ export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
   // steps already "doing" float to the top of suggestions
   suggested.sort((a, b) => (a.status === "doing" ? -1 : 0) - (b.status === "doing" ? -1 : 0));
 
-  const focus = [...overdue, ...dueToday, ...suggested.slice(0, limit)];
+  const focus = [...overdue, ...dueToday, ...suggested.slice(0, cap)];
 
   return {
     day: today,
     overdue,
     dueToday,
-    suggested: suggested.slice(0, limit),
+    suggested: suggested.slice(0, cap),
     doneToday: doneTodayList,
     focus,
     counts: {
       overdue: overdue.length,
       dueToday: dueToday.length,
-      suggested: Math.min(suggested.length, limit),
+      suggested: Math.min(suggested.length, cap),
       doneToday: doneTodayList.length,
     },
   };

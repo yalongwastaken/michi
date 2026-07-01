@@ -130,3 +130,75 @@ test("resetAll clears rows and restores default profile", () => {
   assert.deepEqual(s.tasks, []);
   assert.equal(s.profile.onboarded, false);
 });
+
+test("validateState names a duplicate id", () => {
+  const bad = db.validateState({
+    tasks: [
+      { id: "dup", title: "a" },
+      { id: "dup", title: "b" },
+    ],
+  });
+  assert.match(bad, /duplicate task id "dup"/);
+});
+
+test("validateState names dangling references", () => {
+  assert.match(
+    db.validateState({ milestones: [{ id: "m", roadmapId: "ghost", title: "x" }] }),
+    /missing roadmap "ghost"/,
+  );
+  assert.match(
+    db.validateState({
+      roadmaps: [{ id: "r", title: "R" }],
+      milestones: [{ id: "m", roadmapId: "r", title: "x" }],
+      steps: [{ id: "s", milestoneId: "nope", title: "y" }],
+    }),
+    /missing milestone "nope"/,
+  );
+  assert.match(
+    db.validateState({ tasks: [{ id: "t", title: "x", stepId: "ghost" }] }),
+    /missing step "ghost"/,
+  );
+});
+
+test("putState strips unknown extra keys instead of failing at the SQL layer", () => {
+  const s = db.putState({
+    tasks: [{ id: "xk", title: "extra keys", junk: "ignored", nested: { a: 1 } }],
+  });
+  const t = s.tasks.find((x) => x.id === "xk");
+  assert.equal(t.title, "extra keys");
+  assert.ok(!("junk" in t));
+});
+
+test("addTask ignores unknown keys", () => {
+  const s = db.addTask({ id: "xk2", title: "junk-proof", bogus: { nested: true } });
+  assert.ok(s.tasks.find((t) => t.id === "xk2"));
+});
+
+test("importAll replaces state + completions together", () => {
+  const s = db.importAll({
+    tasks: [{ id: "im1", title: "imported" }],
+    completions: [{ day: "2026-06-20", kind: "task", refId: "im1" }],
+  });
+  assert.deepEqual(
+    s.tasks.map((t) => t.id),
+    ["im1"],
+  );
+  assert.equal(s.completions.length, 1);
+});
+
+test("importAll is atomic — a late failure leaves old data fully intact", () => {
+  db.importAll({
+    tasks: [{ id: "keep", title: "keep me" }],
+    completions: [{ day: "2026-06-21", kind: "task", refId: "keep" }],
+  });
+  const before = db.getState();
+  // this completion passes the shape guards but its refId can't be bound to SQL,
+  // so it throws *after* the tables were rewritten — the rollback must cover both
+  assert.throws(() =>
+    db.importAll({
+      tasks: [{ id: "incoming", title: "new stuff" }],
+      completions: [{ day: "2026-06-22", kind: "task", refId: { object: true } }],
+    }),
+  );
+  assert.deepEqual(db.getState(), before); // tables, completions and rev untouched
+});

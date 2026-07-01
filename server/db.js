@@ -251,6 +251,45 @@ export function validateState(s) {
       return bad;
     }
   }
+  // duplicate ids / dangling references would only surface as generic SQL errors
+  // deep inside the import — catch them here with messages that say what's wrong
+  for (const [key, label] of [
+    ["roadmaps", "roadmap"],
+    ["milestones", "milestone"],
+    ["steps", "step"],
+    ["projects", "project"],
+    ["tasks", "task"],
+  ]) {
+    const seen = new Set();
+    for (const x of s[key] || []) {
+      if (seen.has(x.id)) {
+        return `duplicate ${label} id "${x.id}"`;
+      }
+      seen.add(x.id);
+    }
+  }
+  const roadmapIds = new Set((s.roadmaps || []).map((r) => r.id));
+  const milestoneIds = new Set((s.milestones || []).map((m) => m.id));
+  const stepIds = new Set((s.steps || []).map((st) => st.id));
+  const projectIds = new Set((s.projects || []).map((p) => p.id));
+  for (const m of s.milestones || []) {
+    if (!roadmapIds.has(m.roadmapId)) {
+      return `milestone "${m.id}" references missing roadmap "${m.roadmapId}"`;
+    }
+  }
+  for (const st of s.steps || []) {
+    if (!milestoneIds.has(st.milestoneId)) {
+      return `step "${st.id}" references missing milestone "${st.milestoneId}"`;
+    }
+  }
+  for (const t of s.tasks || []) {
+    if (t.stepId && !stepIds.has(t.stepId)) {
+      return `task "${t.id}" references missing step "${t.stepId}"`;
+    }
+    if (t.projectId && !projectIds.has(t.projectId)) {
+      return `task "${t.id}" references missing project "${t.projectId}"`;
+    }
+  }
   if (s.profile != null) {
     if (typeof s.profile !== "object" || Array.isArray(s.profile)) {
       return "profile must be an object";
@@ -371,6 +410,26 @@ export function getState() {
 }
 
 // ── lean writes (the common daily interactions — no full-state PUT) ─────────────
+// Explicit pick-list: bind exactly the known columns. Spreading `{...defaults, ...t}`
+// let unknown extra keys (or an explicit `undefined`) reach the SQL layer, where
+// they throw generic bind errors instead of being harmlessly ignored.
+function pickTask(t, nowIso) {
+  return {
+    id: t.id,
+    title: t.title,
+    status: t.status ?? "todo",
+    due: t.due ?? null,
+    recurrence: t.recurrence ?? null,
+    stepId: t.stepId ?? null,
+    projectId: t.projectId ?? null,
+    estMin: t.estMin ?? null,
+    position: t.position ?? 0,
+    notes: t.notes ?? null,
+    createdAt: t.createdAt ?? nowIso,
+    doneAt: t.doneAt ?? null,
+  };
+}
+
 /**
  * Append a single task and bump the rev. Cheaper than re-sending the whole state.
  * @returns {Object} the fresh full state
@@ -381,19 +440,7 @@ export function addTask(t) {
     db.prepare(
       `INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at)
        VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt)`,
-    ).run({
-      status: "todo",
-      due: null,
-      recurrence: null,
-      stepId: null,
-      projectId: null,
-      estMin: null,
-      position: 0,
-      notes: null,
-      createdAt: new Date().toISOString(),
-      doneAt: null,
-      ...t,
-    });
+    ).run(pickTask(t, new Date().toISOString()));
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {
@@ -476,57 +523,56 @@ function replaceAll(state) {
     ),
   };
 
+  // pick-lists throughout (see pickTask): unknown extra keys must be stripped,
+  // never handed to the SQL layer where they throw generic bind errors
   const nowIso = new Date().toISOString();
   for (const r of state.roadmaps || []) {
     ins.roadmap.run({
-      sourceUrl: null,
-      color: null,
-      position: 0,
-      createdAt: nowIso,
-      targetDate: null,
-      stepMinutes: null,
-      ...r,
+      id: r.id,
+      title: r.title,
+      sourceUrl: r.sourceUrl ?? null,
+      color: r.color ?? null,
       archived: r.archived ? 1 : 0, // coerce bool → 0/1 for the INTEGER column
+      position: r.position ?? 0,
+      createdAt: r.createdAt ?? nowIso,
+      targetDate: r.targetDate ?? null,
+      stepMinutes: r.stepMinutes ?? null,
     });
   }
   for (const m of state.milestones || []) {
-    ins.milestone.run({ position: 0, ...m });
+    ins.milestone.run({
+      id: m.id,
+      roadmapId: m.roadmapId,
+      title: m.title,
+      position: m.position ?? 0,
+    });
   }
   for (const s of state.steps || []) {
     ins.step.run({
-      status: "todo",
-      position: 0,
-      resourceUrl: null,
-      notes: null,
-      doneAt: null,
-      ...s,
+      id: s.id,
+      milestoneId: s.milestoneId,
+      title: s.title,
+      status: s.status ?? "todo",
+      position: s.position ?? 0,
+      resourceUrl: s.resourceUrl ?? null,
+      notes: s.notes ?? null,
+      doneAt: s.doneAt ?? null,
     });
   }
   for (const p of state.projects || []) {
     ins.project.run({
-      status: "idea",
-      repoUrl: null,
-      summary: null,
-      position: 0,
-      createdAt: nowIso,
-      shippedAt: null,
-      ...p,
+      id: p.id,
+      title: p.title,
+      status: p.status ?? "idea",
+      repoUrl: p.repoUrl ?? null,
+      summary: p.summary ?? null,
+      position: p.position ?? 0,
+      createdAt: p.createdAt ?? nowIso,
+      shippedAt: p.shippedAt ?? null,
     });
   }
   for (const t of state.tasks || []) {
-    ins.task.run({
-      status: "todo",
-      due: null,
-      recurrence: null,
-      stepId: null,
-      projectId: null,
-      estMin: null,
-      position: 0,
-      notes: null,
-      createdAt: nowIso,
-      doneAt: null,
-      ...t,
-    });
+    ins.task.run(pickTask(t, nowIso));
   }
 
   if (state.profile) {
@@ -582,6 +628,29 @@ export function resetAll() {
   return getState();
 }
 
+/** Inner worker for completion-log rebuilds — the caller owns the transaction. */
+function writeCompletionRows(rows = []) {
+  db.prepare("DELETE FROM completions").run();
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(@id, @day, @kind, @refId, @ts)",
+  );
+  for (const c of rows) {
+    // skip malformed rows rather than fail the whole import
+    if (!c?.day || !c?.kind || !c?.refId) {
+      continue;
+    }
+    if (!isValidDay(c.day) || !COMPLETION_KINDS.has(c.kind)) {
+      continue; // a garbage day would poison streak math; unknown kinds mean nothing
+    }
+    const id = typeof c.id === "string" && c.id ? c.id : newId();
+    const ts =
+      (typeof c.ts === "string" && c.ts) || (typeof c.ts === "number" && Number.isFinite(c.ts))
+        ? c.ts
+        : c.day; // non-bindable / missing ts → fall back to the day
+    ins.run({ id, day: c.day, kind: c.kind, refId: c.refId, ts });
+  }
+}
+
 /**
  * Replace the whole completion log from an array of rows. The everyday full-state
  * PUT deliberately leaves completions untouched (they're server-owned history that
@@ -591,25 +660,28 @@ export function resetAll() {
 export function replaceCompletions(rows = []) {
   db.exec("BEGIN");
   try {
-    db.prepare("DELETE FROM completions").run();
-    const ins = db.prepare(
-      "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(@id, @day, @kind, @refId, @ts)",
-    );
-    for (const c of rows) {
-      // skip malformed rows rather than fail the whole import
-      if (!c?.day || !c?.kind || !c?.refId) {
-        continue;
-      }
-      if (!isValidDay(c.day) || !COMPLETION_KINDS.has(c.kind)) {
-        continue; // a garbage day would poison streak math; unknown kinds mean nothing
-      }
-      const id = typeof c.id === "string" && c.id ? c.id : newId();
-      const ts =
-        (typeof c.ts === "string" && c.ts) || (typeof c.ts === "number" && Number.isFinite(c.ts))
-          ? c.ts
-          : c.day; // non-bindable / missing ts → fall back to the day
-      ins.run({ id, day: c.day, kind: c.kind, refId: c.refId, ts });
-    }
+    writeCompletionRows(rows);
+    bumpRev();
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return getState();
+}
+
+/**
+ * Backup import: replace the whole model AND the completion log in ONE
+ * transaction. Running them as two separate transactions meant a failure in the
+ * second half-applied the import (new tables, old history) while reporting an
+ * error — the rollback here covers both.
+ * @returns {Object} the fresh full state
+ */
+export function importAll(state) {
+  db.exec("BEGIN");
+  try {
+    replaceAll(state);
+    writeCompletionRows(state.completions || []);
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {

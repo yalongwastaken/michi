@@ -110,6 +110,17 @@ test("buildToday: suggests the first not-done step per active roadmap", () => {
   assert.equal(t.suggested[0].roadmapTitle, "Embedded");
 });
 
+test("buildToday: a negative limit falls back to the default instead of slicing", () => {
+  const s = state({
+    roadmaps: [{ id: "rm", title: "Embedded", archived: false }],
+    milestones: [{ id: "m1", roadmapId: "rm", title: "Basics", position: 0 }],
+    steps: [{ id: "s1", milestoneId: "m1", title: "GPIO", status: "todo", position: 0 }],
+  });
+  const t = buildToday(s, { today: "2026-06-23", limit: -1 });
+  assert.equal(t.suggested.length, 1); // slice(0, -1) would have dropped it
+  assert.equal(t.counts.suggested, 1);
+});
+
 test("computeStreak: counts consecutive days ending today", () => {
   const days = new Set(["2026-06-21", "2026-06-22", "2026-06-23"]);
   const r = computeStreak(days, "2026-06-23", 0);

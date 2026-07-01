@@ -12,7 +12,7 @@ import {
   addTask,
   setDone,
   resetAll,
-  replaceCompletions,
+  importAll,
   getPlanSkips,
   setPlanSkip,
   ConflictError,
@@ -146,11 +146,13 @@ function resolveBudget(q) {
 
 // the daily queue — "what should I work on today?"
 app.get("/api/today", (req, res) => {
+  // a negative finite limit would reach slice(0, -1) and silently drop items —
+  // out-of-range falls back to the default, same policy as resolveBudget
   const limit = Number(req.query.limit);
   res.json(
     buildToday(getState(), {
       today: resolveDay(req.query.day),
-      limit: Number.isFinite(limit) ? limit : undefined,
+      limit: Number.isFinite(limit) && limit >= 0 ? limit : undefined,
     }),
   );
 });
@@ -251,10 +253,10 @@ app.post("/api/import", (req, res) => {
     return res.status(400).json({ error: bad });
   }
   try {
-    putState(body); // no rev check — deliberate replace
-    // import is the one path that rebuilds server-owned activity history, so a
-    // restored backup brings streaks/heatmap back too
-    res.json(replaceCompletions(body.completions || []));
+    // no rev check — deliberate replace. One transaction for tables + completions
+    // (import is the one path that rebuilds server-owned activity history), so a
+    // failure late in the import can't half-apply it while reporting an error.
+    res.json(importAll(body));
   } catch (e) {
     console.warn("POST /api/import failed:", e.message);
     res.status(400).json({ error: "import failed — file may be malformed" });

@@ -10,7 +10,7 @@
 // re-orders / re-selects from a known-good set.
 //
 // Enable with:  MICHI_LLM=1  (optionally MICHI_LLM_MODEL=…, MICHI_LLM_URL=…)
-import { localDay } from "./engine.js";
+import { localDay, recurringDueToday } from "./engine.js";
 
 /** Is the optional model layer turned on? */
 export function aiEnabled() {
@@ -77,10 +77,16 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
   const roadmaps = (state.roadmaps || []).filter((r) => !r.archived);
   const milestones = state.milestones || [];
   const steps = state.steps || [];
+  // per-roadmap step estimate when set, else the global default (mirrors planner.js)
+  const stepCost = (r) =>
+    Number.isFinite(Number(r.stepMinutes)) && Number(r.stepMinutes) > 0
+      ? Number(r.stepMinutes)
+      : defaultStepMin;
   for (const r of roadmaps) {
     const rms = milestones
       .filter((m) => m.roadmapId === r.id)
       .sort((a, b) => a.position - b.position);
+    const rStepMin = stepCost(r);
     let taken = 0;
     for (const m of rms) {
       for (const s of steps
@@ -99,7 +105,7 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
             roadmap: r.title,
             milestone: m.title,
             status: s.status,
-            estMin: defaultStepMin,
+            estMin: rStepMin,
           },
           {
             kind: "step",
@@ -111,7 +117,7 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
             roadmapTitle: r.title,
             roadmapColor: r.color || null,
             milestoneTitle: m.title,
-            estMin: defaultStepMin,
+            estMin: rStepMin,
           },
         );
         taken += 1;
@@ -170,6 +176,28 @@ export function parseChoice(text, validKeys) {
   }
   const why = typeof obj.why === "string" ? obj.why.trim().slice(0, 200) : "";
   return { ids, why };
+}
+
+/**
+ * Reason buckets for a refined item set (mirrors planner.js's counts shape). The
+ * draft's counts describe a *different* item selection, so they must be recomputed
+ * from what the model actually picked. `pace` stays 0 — the model doesn't pace.
+ */
+function countItems(items, today) {
+  const counts = { due: 0, pace: 0, continue: 0, rotate: 0 };
+  for (const it of items) {
+    const isDue =
+      it.kind === "task" &&
+      (it.recurrence ? recurringDueToday(it, today) : !!(it.due && it.due <= today));
+    if (isDue) {
+      counts.due += 1;
+    } else if (it.status === "doing") {
+      counts.continue += 1;
+    } else {
+      counts.rotate += 1;
+    }
+  }
+  return counts;
 }
 
 /**
@@ -237,7 +265,7 @@ export async function refinePlan(state, draft, opts = {}, deps = {}) {
       plannedMin,
       overflow: plannedMin > budgetMin,
       items,
-      counts: draft.counts,
+      counts: countItems(items, today),
       why: choice.why || draft.why,
       source: "ai",
       model: cfg.model,
