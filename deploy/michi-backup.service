@@ -1,0 +1,9 @@
+[Unit]
+Description=Michi database backup (WAL-safe snapshot)
+
+[Service]
+Type=oneshot
+# adjust the path + user to match michi.service (repo root, not server/)
+User=youruser
+WorkingDirectory=/home/youruser/michi
+ExecStart=/usr/bin/make backup

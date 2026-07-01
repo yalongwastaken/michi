@@ -266,12 +266,22 @@ app.post("/api/import", (req, res) => {
 // unknown API paths get a clean 404 (not the SPA shell)
 app.use("/api", (_req, res) => res.status(404).json({ error: "not found" }));
 
-// ── serve the built client (client/dist) if present ──────────────────────────
+// ── serve the built client (client/dist) when present ────────────────────────
+// registered unconditionally and checked per-request (express.static stats files
+// lazily; the fallback checks existsSync) so building the client after the server
+// started begins serving the app without a restart
 const dist = join(__dirname, "..", "client", "dist");
-if (existsSync(dist)) {
-  app.use(express.static(dist));
-  app.get("*", (_req, res) => res.sendFile(join(dist, "index.html")));
-}
+app.use(express.static(dist));
+app.get("*", (_req, res) => {
+  const index = join(dist, "index.html");
+  if (existsSync(index)) {
+    return res.sendFile(index);
+  }
+  res
+    .status(404)
+    .type("text/plain")
+    .send("Michi API is running, but the client isn't built yet — run `make build`.");
+});
 
 // terminal error handler — turns thrown/rejected route errors into a clean 500
 app.use((err, _req, res, _next) => {
@@ -286,4 +296,14 @@ app.use((err, _req, res, _next) => {
 
 const PORT = process.env.PORT || 4001;
 const HOST = process.env.HOST || "0.0.0.0";
-app.listen(PORT, HOST, () => console.log(`michi server on http://${HOST}:${PORT}`));
+const server = app.listen(PORT, HOST, () => console.log(`michi server on http://${HOST}:${PORT}`));
+// without this, a bind failure throws unhandled and systemd (RestartSec=3) loops it
+// tight forever — log something actionable and exit cleanly instead
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`michi: port ${PORT} already in use — is another instance running?`);
+  } else {
+    console.error(`michi: could not listen on ${HOST}:${PORT} — ${err.message}`);
+  }
+  process.exit(1);
+});

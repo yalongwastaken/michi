@@ -38,7 +38,7 @@ the API.
 ```
 server/   Express + node:sqlite API + the Today/momentum engine. No native deps.
 client/   Vite + React single-page app (thin client, installable PWA).
-deploy/   michi.service — a systemd unit for running it 24/7.
+deploy/   systemd units — michi.service (run 24/7) + a nightly backup timer.
 ```
 
 Michi mirrors Tsumiki's spine on purpose (same stack, same self-hosted patterns) but is
@@ -128,13 +128,25 @@ with the Michi icon.
 
 ## Back up your data
 
-The whole database is one file, so a copy is a full backup:
+`make backup` takes a **WAL-safe** snapshot of the database (SQLite's `VACUUM INTO`,
+so it's complete and consistent even while the server is writing — a plain `cp`
+would miss everything still in the WAL):
 
 ```bash
-make backup       # → backups/michi-YYYY-MM-DD.db
+make backup       # → backups/michi-YYYY-MM-DD.db (keeps the 14 most recent)
 ```
 
-Automate it nightly with cron (same pattern as Tsumiki):
+Automate it nightly with the bundled systemd timer (02:00; `Persistent=true`, so a
+run missed while the box was off happens at the next boot):
+
+```bash
+sudo cp deploy/michi-backup.service deploy/michi-backup.timer /etc/systemd/system/
+sudo nano /etc/systemd/system/michi-backup.service   # set User + WorkingDirectory
+sudo systemctl daemon-reload
+sudo systemctl enable --now michi-backup.timer
+```
+
+Prefer cron? This works too:
 
 ```cron
 0 2 * * *  cd ~/michi && make backup
