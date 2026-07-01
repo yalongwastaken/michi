@@ -144,6 +144,17 @@ const STEP_STATUS = new Set(["todo", "doing", "done"]);
 const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
+const COMPLETION_KINDS = new Set(["task", "step"]);
+
+// sane bounds for the numeric settings — a huge/Infinity streakFreezes would make
+// computeStreak() walk back day-by-day (nearly) forever and wedge the event loop
+const SETTING_RANGES = {
+  dailyGoal: [0, 1000], // 0 is valid "rest mode"
+  streakFreezes: [0, 365],
+  dailyMinutes: [0, 1440],
+  defaultStepMin: [0, 1440],
+  taskDefaultMin: [0, 1440],
+};
 
 /** Local YYYY-MM-DD for an ISO timestamp — the mini PC runs in the user's tz. */
 function localDayKey(iso) {
@@ -238,6 +249,29 @@ export function validateState(s) {
     const bad = validateTask(t);
     if (bad) {
       return bad;
+    }
+  }
+  if (s.profile != null) {
+    if (typeof s.profile !== "object" || Array.isArray(s.profile)) {
+      return "profile must be an object";
+    }
+    if (s.profile.name != null && typeof s.profile.name !== "string") {
+      return "profile.name must be a string";
+    }
+  }
+  if (s.settings != null) {
+    if (typeof s.settings !== "object" || Array.isArray(s.settings)) {
+      return "settings must be an object";
+    }
+    for (const [k, [min, max]] of Object.entries(SETTING_RANGES)) {
+      const v = s.settings[k];
+      if (v == null) {
+        continue; // absent → defaults apply (backward-compatible)
+      }
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < min || n > max) {
+        return `settings.${k} must be a number between ${min} and ${max}`;
+      }
     }
   }
   return null; // ok
@@ -562,10 +596,19 @@ export function replaceCompletions(rows = []) {
       "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(@id, @day, @kind, @refId, @ts)",
     );
     for (const c of rows) {
+      // skip malformed rows rather than fail the whole import
       if (!c?.day || !c?.kind || !c?.refId) {
-        continue; // skip malformed rows rather than fail the whole import
+        continue;
       }
-      ins.run({ id: c.id || newId(), day: c.day, kind: c.kind, refId: c.refId, ts: c.ts || c.day });
+      if (!isValidDay(c.day) || !COMPLETION_KINDS.has(c.kind)) {
+        continue; // a garbage day would poison streak math; unknown kinds mean nothing
+      }
+      const id = typeof c.id === "string" && c.id ? c.id : newId();
+      const ts =
+        (typeof c.ts === "string" && c.ts) || (typeof c.ts === "number" && Number.isFinite(c.ts))
+          ? c.ts
+          : c.day; // non-bindable / missing ts → fall back to the day
+      ins.run({ id, day: c.day, kind: c.kind, refId: c.refId, ts });
     }
     bumpRev();
     db.exec("COMMIT");

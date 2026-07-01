@@ -185,6 +185,40 @@ test("roadmapProgress: percentage per roadmap", () => {
   assert.equal(p[0].pct, 50);
 });
 
+test("momentum: pathological streakFreezes are clamped, never walked day-by-day", () => {
+  // "Infinity"/1e9 used to reach computeStreak untouched — which steps back one
+  // calendar day per freeze and would wedge the event loop. Assert the clamp
+  // instead of actually spinning the loop.
+  const s = state({
+    completions: [done("2026-06-23")],
+    settings: { dailyGoal: 3, streakFreezes: "Infinity" },
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  assert.equal(m.streak.freezes, 365);
+  assert.equal(m.streak.current, 1);
+  const big = momentum(state({ settings: { dailyGoal: 3, streakFreezes: 1e9 } }), {
+    today: "2026-06-23",
+  });
+  assert.equal(big.streak.freezes, 365);
+  const neg = momentum(state({ settings: { dailyGoal: 3, streakFreezes: -4 } }), {
+    today: "2026-06-23",
+  });
+  assert.equal(neg.streak.freezes, 0);
+});
+
+test("momentum: dailyGoal 0 is a valid rest goal, not coerced to 1", () => {
+  const m = momentum(state({ settings: { dailyGoal: 0, streakFreezes: 0 } }), {
+    today: "2026-06-23",
+  });
+  assert.equal(m.dailyGoal, 0);
+  assert.equal(m.metGoal, true); // nothing done, but the goal is zero
+  // missing/invalid still falls back to 1
+  const bad = momentum(state({ settings: { dailyGoal: "??", streakFreezes: 0 } }), {
+    today: "2026-06-23",
+  });
+  assert.equal(bad.dailyGoal, 1);
+});
+
 test("momentum: heatmap is exactly heatDays long and ends today", () => {
   const s = state({ completions: [done("2026-06-23", "task", "t")] });
   const m = momentum(s, { today: "2026-06-23", heatDays: 30 });

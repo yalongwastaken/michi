@@ -292,8 +292,12 @@ export function roadmapProgress(state) {
  */
 export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
   const settings = state.settings || {};
-  const dailyGoal = Number(settings.dailyGoal) || 1;
-  const freezes = Number(settings.streakFreezes) || 0;
+  // 0 is a valid "rest mode" goal — only fall back to 1 when missing/invalid
+  const rawGoal = Number(settings.dailyGoal);
+  const dailyGoal = Number.isFinite(rawGoal) && rawGoal >= 0 ? rawGoal : 1;
+  // clamp: an Infinity/huge freeze count would make computeStreak walk back
+  // day-by-day (nearly) forever and wedge the event loop
+  const freezes = Math.min(Math.max(Number(settings.streakFreezes) || 0, 0), 365);
 
   const counts = activityByDay(state);
   const todayCount = counts.get(today) || 0;

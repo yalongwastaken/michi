@@ -10,6 +10,7 @@ const DB = join(tmpdir(), `michi-test-${process.pid}.db`);
 process.env.MICHI_DB = DB;
 
 const db = await import("./db.js");
+const { momentum } = await import("./engine.js");
 
 test.after(() => {
   for (const ext of ["", "-wal", "-shm"]) {
@@ -85,6 +86,42 @@ test("putState enforces optimistic concurrency", () => {
 
 test("validateState rejects a milestone without a roadmapId", () => {
   assert.ok(db.validateState({ milestones: [{ id: "m", title: "x" }] }));
+});
+
+test("validateState rejects pathological numeric settings", () => {
+  assert.ok(db.validateState({ settings: { streakFreezes: "Infinity" } }));
+  assert.ok(db.validateState({ settings: { streakFreezes: 1e9 } }));
+  assert.ok(db.validateState({ settings: { streakFreezes: -1 } }));
+  assert.ok(db.validateState({ settings: { dailyMinutes: "a lot" } }));
+  assert.ok(db.validateState({ settings: { dailyGoal: NaN } }));
+  assert.ok(db.validateState({ settings: "dark" })); // not even an object
+  assert.equal(db.validateState({ settings: { dailyGoal: 0 } }), null); // 0 = rest mode
+  assert.equal(db.validateState({ settings: { streakFreezes: 5, theme: "dark" } }), null);
+  assert.equal(db.validateState({ settings: {} }), null); // missing values stay fine
+  assert.equal(db.validateState({}), null); // settings absent entirely
+});
+
+test("validateState rejects a non-string profile name", () => {
+  assert.ok(db.validateState({ profile: { name: 42 } }));
+  assert.ok(db.validateState({ profile: ["not", "an", "object"] }));
+  assert.equal(db.validateState({ profile: { name: "Sam" } }), null);
+  assert.equal(db.validateState({ profile: {} }), null);
+});
+
+test("replaceCompletions skips rows with an invalid day or kind, defaults a bad ts", () => {
+  const s = db.replaceCompletions([
+    { day: "2026-06-23", kind: "task", refId: "a" },
+    { day: "not-a-day", kind: "task", refId: "bad-day" },
+    { day: "2026-02-30", kind: "task", refId: "rollover-day" },
+    { day: "2026-06-23", kind: "meal", refId: "bad-kind" },
+    { day: "2026-06-22", kind: "step", refId: "d", ts: { weird: true } },
+  ]);
+  assert.deepEqual(s.completions.map((c) => c.refId).sort(), ["a", "d"]);
+  assert.equal(s.completions.find((c) => c.refId === "d").ts, "2026-06-22"); // ts fell back to day
+  // the surviving log still feeds momentum() without blowing up
+  const m = momentum(s, { today: "2026-06-23" });
+  assert.equal(m.daysActive, 2);
+  assert.equal(m.streak.current, 2);
 });
 
 test("resetAll clears rows and restores default profile", () => {

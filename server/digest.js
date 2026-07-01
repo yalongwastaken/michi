@@ -26,7 +26,9 @@ export function buildDigest(state, opts = {}) {
   const plan = planDay(state, opts);
   const m = momentum(state, { today });
   const nudges = insights(state, { today });
-  const name = (state.profile?.name || "").trim();
+  // belt-and-suspenders: validateState enforces a string name, but a non-string
+  // (e.g. a number) from an old backup must not crash the digest
+  const name = typeof state.profile?.name === "string" ? state.profile.name.trim() : "";
 
   const lines = [`Michi — ${dateLabel(today)}${name ? ` · ${name}` : ""}`];
 
