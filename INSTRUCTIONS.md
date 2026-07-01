@@ -60,6 +60,20 @@ sudo systemctl status michi.service
 It now starts on boot and restarts on failure — exactly like your Tsumiki service, just
 on port 4001. You'll have two units side by side: `tsumiki.service` and `michi.service`.
 
+### Nightly backups (recommended)
+
+A matching timer in [`deploy/`](./deploy/) runs `make backup` every night at 02:00 —
+a WAL-safe snapshot of the database (and if the mini PC was off at 02:00, the missed
+run happens at the next boot). Install it the same way:
+
+```bash
+sudo cp deploy/michi-backup.service deploy/michi-backup.timer /etc/systemd/system/
+sudo nano /etc/systemd/system/michi-backup.service   # set User + WorkingDirectory (repo root)
+sudo systemctl daemon-reload
+sudo systemctl enable --now michi-backup.timer
+sudo systemctl list-timers michi-backup.timer        # confirm the next run is scheduled
+```
+
 ---
 
 ## 3. Install it on your iPhone
@@ -84,9 +98,10 @@ check things off from **Today**.
 
 ## 5. Back up & update
 
-- **Backup:** `make backup` copies the database to `backups/michi-YYYY-MM-DD.db`. Add a
-  nightly cron line (`0 2 * * * cd ~/michi && make backup`) the same way you did for
-  Tsumiki.
+- **Backup:** `make backup` takes a WAL-safe snapshot of the database to
+  `backups/michi-YYYY-MM-DD.db` (keeping the 14 most recent). For automatic nightly
+  backups, install the `michi-backup.timer` unit — see step 2 above. (A cron line —
+  `0 2 * * * cd ~/michi && make backup` — works too, if you prefer.)
 - **Update:** pull the latest code, then `make install && sudo systemctl restart michi`.
 - **Export anytime:** Settings → Export downloads the whole dataset as JSON; Import
   restores it.

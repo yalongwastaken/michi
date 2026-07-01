@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Michi database backup at 02:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# if the mini PC was off at 02:00, run the missed backup on the next boot
+Persistent=true
+
+[Install]
+WantedBy=timers.target

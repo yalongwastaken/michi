@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-# adjust the path + user to wherever you put the repo
+# adjust the path + user to wherever you put the repo (without User= the service
+# runs as root and the database ends up root-owned)
+User=youruser
 WorkingDirectory=/home/youruser/michi/server
 ExecStart=/usr/bin/node --experimental-sqlite index.js
 Environment=PORT=4001
@@ -18,6 +20,13 @@ Environment=TZ=America/New_York
 # Environment=MICHI_LLM_MODEL=llama3.2:3b
 Restart=on-failure
 RestartSec=3
+
+# basic hardening: the process can't gain privileges, and the filesystem is
+# read-only to it except the data dir (adjust the path to match WorkingDirectory;
+# the dir is created on first run, so run the app once before enabling the unit)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/youruser/michi/server/data
 
 [Install]
 WantedBy=multi-user.target

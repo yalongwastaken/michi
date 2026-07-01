@@ -62,10 +62,10 @@ format:
 lint:
 	npm run lint
 
-## backup: copy the SQLite database into ./backups (timestamped, keeps last 14)
+## backup: WAL-safe snapshot of the SQLite database into ./backups (timestamped, keeps last 14)
 backup:
 	@mkdir -p backups
-	cp server/data/michi.db backups/michi-$$(date +%F).db
+	node --experimental-sqlite server/backup.js backups/michi-$$(date +%F).db
 	@ls -1t backups/michi-*.db 2>/dev/null | tail -n +15 | xargs -r rm -f
 	@echo "backed up → backups/michi-$$(date +%F).db (keeping the 14 most recent)"
 
