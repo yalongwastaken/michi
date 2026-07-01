@@ -81,6 +81,35 @@ test("refinePlan resolves the endpoint against MICHI_LLM_URL (no path mangling)"
   delete process.env.MICHI_LLM_URL;
 });
 
+test("buildCandidates prices steps with the roadmap's stepMinutes when set", () => {
+  const s = sampleState();
+  s.roadmaps[0].stepMinutes = 45;
+  const { rows, byKey } = buildCandidates(s, { today: "2026-06-23" });
+  assert.equal(rows.find((r) => r.key === "step:s1").estMin, 45);
+  assert.equal(byKey.get("step:s2").estMin, 45);
+  // no stepMinutes → global default still applies
+  const plain = buildCandidates(sampleState(), { today: "2026-06-23", defaultStepMin: 30 });
+  assert.equal(plain.byKey.get("step:s1").estMin, 30);
+});
+
+test("refinePlan recomputes counts for the refined item set", async () => {
+  process.env.MICHI_LLM = "1";
+  const fakeFetch = async () => ({
+    ok: true,
+    json: async () => ({ message: { content: '{"items":["task:t1","step:s1"]}' } }),
+  });
+  const stale = { due: 9, pace: 9, continue: 9, rotate: 9 }; // the draft's, for other items
+  const out = await refinePlan(
+    sampleState(),
+    { ...draft, counts: stale },
+    { today: "2026-06-23" },
+    { fetch: fakeFetch },
+  );
+  assert.equal(out.source, "ai");
+  assert.deepEqual(out.counts, { due: 1, pace: 0, continue: 0, rotate: 1 });
+  delete process.env.MICHI_LLM;
+});
+
 test("refinePlan falls back to the draft when the model errors/times out", async () => {
   process.env.MICHI_LLM = "1";
   const boom = async () => {
