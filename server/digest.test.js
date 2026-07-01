@@ -28,6 +28,12 @@ test("digest text includes date, streak, plan items, and a nudge", () => {
   assert.ok(d.plan.items.length >= 1);
 });
 
+test("digest tolerates a non-string profile name", () => {
+  const d = buildDigest(state({ profile: { name: 42 } }), { today: "2026-06-23", budgetMin: 60 });
+  assert.match(d.text, /^Michi — /m);
+  assert.doesNotMatch(d.text, /42/); // not rendered, not crashed
+});
+
 test("digest handles an empty day gracefully", () => {
   const d = buildDigest(
     { roadmaps: [], milestones: [], steps: [], tasks: [], completions: [], settings: {} },
