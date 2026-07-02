@@ -163,7 +163,7 @@ make test         # server engine/db tests + client lib tests
 | Method | Path             | Purpose                                                        |
 | ------ | ---------------- | -------------------------------------------------------------- |
 | GET    | `/api/health`    | liveness check                                                 |
-| GET    | `/api/state`     | full unified model                                             |
+| GET    | `/api/state`     | the unified model (sans completion history — see `/api/export`) |
 | PUT    | `/api/state`     | replace the full model (the client's "save")                   |
 | POST   | `/api/tasks`     | append a single task (lean write)                              |
 | POST   | `/api/complete`  | toggle a task/step done (`{kind,id,done}`)                     |
@@ -174,8 +174,8 @@ make test         # server engine/db tests + client lib tests
 | GET    | `/api/dashboard` | today + momentum + plan + insights + weekly review, one round-trip (`?day=`) |
 | GET    | `/api/digest`    | plain-text (`?format=text`) or JSON summary of the day         |
 | GET    | `/api/config`    | client capability probe (whether the local model is on)        |
-| GET    | `/api/export`    | download the full model as JSON                                |
-| POST   | `/api/import`    | replace the model from an exported JSON                        |
+| GET    | `/api/export`    | download the full model incl. completion history as JSON      |
+| POST   | `/api/import`    | replace the model (and history) from an exported JSON         |
 | POST   | `/api/reset`     | wipe everything and start fresh                                |
 
 ## License

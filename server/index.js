@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import {
   getState,
+  getFullState,
   putState,
   validateState,
   validateTask,
@@ -86,7 +87,9 @@ app.get("/api/config", (_req, res) => {
   res.json({ ai: cfg.enabled, model: cfg.enabled ? cfg.model : null });
 });
 
-// full model (client loads this once on boot)
+// full model (client loads this once on boot). Deliberately *without* the
+// completions log — it grows forever and the client never reads it (streaks and
+// the heatmap arrive precomputed via /api/momentum); /api/export carries it.
 app.get("/api/state", (_req, res) => res.json(getState()));
 
 // pragmatic full-state replace (client's "save" — see db.js)
@@ -159,8 +162,9 @@ app.get("/api/today", (req, res) => {
 });
 
 // momentum: streak, heatmap, roadmap/project progress
+// (getFullState: streak/heatmap math consumes the completion history)
 app.get("/api/momentum", (req, res) => {
-  res.json(momentum(getState(), { today: resolveDay(req.query.day) }));
+  res.json(momentum(getFullState(), { today: resolveDay(req.query.day) }));
 });
 
 // the planner — a doable day from the whole picture. Deterministic by default;
@@ -168,7 +172,7 @@ app.get("/api/momentum", (req, res) => {
 // deterministic plan on any hiccup. ?budget= overrides the day's time budget.
 app.get("/api/plan", async (req, res, next) => {
   try {
-    const state = getState();
+    const state = getFullState(); // planner reads history (neglect rotation)
     const day = resolveDay(req.query.day);
     const o = planOpts(state, day, resolveBudget(req.query.budget));
     const plan = planDay(state, o);
@@ -182,7 +186,7 @@ app.get("/api/plan", async (req, res, next) => {
 // one round-trip for the whole Today screen: queue + momentum + plan + nudges
 app.get("/api/dashboard", (req, res, next) => {
   try {
-    const state = getState();
+    const state = getFullState(); // momentum/plan/insights/review read history
     const day = resolveDay(req.query.day);
     res.json({
       today: buildToday(state, { today: day }),
@@ -199,7 +203,7 @@ app.get("/api/dashboard", (req, res, next) => {
 // a plain-text (or JSON) summary for a morning cron → local notifier (no cloud)
 app.get("/api/digest", (req, res, next) => {
   try {
-    const state = getState();
+    const state = getFullState(); // streak + plan both read history
     const day = resolveDay(req.query.day);
     const d = buildDigest(state, planOpts(state, day));
     if (req.query.format === "text" || (req.get("accept") || "").includes("text/plain")) {
@@ -221,7 +225,7 @@ app.post("/api/plan/skip", (req, res) => {
   try {
     const day = resolveDay(req.body?.day);
     setPlanSkip(day, kind, id, !!on);
-    const state = getState();
+    const state = getFullState(); // planner reads history (neglect rotation)
     res.json(planDay(state, planOpts(state, day)));
   } catch (e) {
     console.warn("POST /api/plan/skip failed:", e.message);
@@ -239,13 +243,15 @@ app.post("/api/reset", (_req, res) => {
   }
 });
 
-// data export (download the whole dataset) + import (validated full replace)
+// data export (download the whole dataset) + import (validated full replace).
+// Export is the one read that ships the completions log — a backup must carry
+// your streak history so a restore brings it back (importAll rebuilds the log).
 app.get("/api/export", (_req, res) => {
   res.setHeader(
     "Content-Disposition",
     `attachment; filename="michi-${new Date().toISOString().slice(0, 10)}.json"`,
   );
-  res.json(getState());
+  res.json(getFullState());
 });
 app.post("/api/import", (req, res) => {
   const body = req.body || {};

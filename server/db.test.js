@@ -191,7 +191,7 @@ test("importAll is atomic — a late failure leaves old data fully intact", () =
     tasks: [{ id: "keep", title: "keep me" }],
     completions: [{ day: "2026-06-21", kind: "task", refId: "keep" }],
   });
-  const before = db.getState();
+  const before = db.getFullState(); // full: the rollback must cover completions too
   // this completion passes the shape guards but its refId can't be bound to SQL,
   // so it throws *after* the tables were rewritten — the rollback must cover both
   assert.throws(() =>
@@ -200,5 +200,51 @@ test("importAll is atomic — a late failure leaves old data fully intact", () =
       completions: [{ day: "2026-06-22", kind: "task", refId: { object: true } }],
     }),
   );
-  assert.deepEqual(db.getState(), before); // tables, completions and rev untouched
+  assert.deepEqual(db.getFullState(), before); // tables, completions and rev untouched
+});
+
+test("getState is slim: the completions log is not shipped on everyday reads/writes", () => {
+  db.importAll({
+    tasks: [{ id: "slim", title: "history stays server-side" }],
+    completions: [{ day: "2026-06-19", kind: "task", refId: "slim" }],
+  });
+  // no `completions` key at all (not even an empty array) on the everyday paths
+  assert.ok(!("completions" in db.getState()));
+  assert.ok(!("completions" in db.setDone("task", "slim", true)));
+  assert.ok(!("completions" in db.addTask({ id: "slim2", title: "another" })));
+  // …while getFullState still carries the full log for export/import
+  const full = db.getFullState();
+  assert.ok(Array.isArray(full.completions));
+  assert.ok(full.completions.some((c) => c.refId === "slim"));
+});
+
+test("everyday PUT leaves completions untouched (even an explicit completions key)", () => {
+  db.importAll({
+    tasks: [{ id: "keep2", title: "task with history" }],
+    completions: [{ day: "2026-06-18", kind: "task", refId: "keep2" }],
+  });
+  const before = db.getFullState().completions;
+  // a full-state save that replaces the model AND tries to blank the log
+  const s = db.putState({ tasks: [{ id: "fresh", title: "replaced model" }], completions: [] });
+  assert.ok(!("completions" in s)); // write response stays slim
+  assert.deepEqual(db.getFullState().completions, before); // history survived the save
+});
+
+test("export → import round-trip retains completions", () => {
+  db.importAll({
+    tasks: [{ id: "rt", title: "round-trip" }],
+    completions: [
+      { day: "2026-06-16", kind: "task", refId: "rt" },
+      { day: "2026-06-17", kind: "task", refId: "rt" },
+    ],
+  });
+  const exported = db.getFullState(); // what GET /api/export serves
+  db.resetAll();
+  assert.equal(db.getFullState().completions.length, 0); // reset really cleared the log
+  const restored = db.importAll(exported); // what POST /api/import does
+  assert.deepEqual(restored.completions, exported.completions);
+  assert.deepEqual(
+    restored.tasks.map((t) => t.id),
+    exported.tasks.map((t) => t.id),
+  );
 });
