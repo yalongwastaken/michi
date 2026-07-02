@@ -1,50 +1,12 @@
 // insights.js — small, cheap "nudges" computed from data you already have, so Michi
 // can point things out instead of waiting to be asked. Pure + deterministic.
-import { roadmapProgress, dayKey } from "./engine.js";
-
-/** Whole days from `day` back to `from` (both YYYY-MM-DD); null if `from` missing. */
-function daysSince(from, day) {
-  if (!from) {
-    return null;
-  }
-  return Math.round((Date.parse(`${day}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000);
-}
-
-/** Per-roadmap last activity day (from the completion log + step→roadmap mapping). */
-function lastActiveByRoadmap(state) {
-  const mToR = new Map((state.milestones || []).map((m) => [m.id, m.roadmapId]));
-  const s2r = new Map();
-  for (const s of state.steps || []) {
-    const rid = mToR.get(s.milestoneId);
-    if (rid) {
-      s2r.set(s.id, rid);
-    }
-  }
-  const taskR = new Map();
-  for (const t of state.tasks || []) {
-    if (t.stepId && s2r.has(t.stepId)) {
-      taskR.set(t.id, s2r.get(t.stepId));
-    }
-  }
-  const last = new Map();
-  for (const c of state.completions || []) {
-    const rid = c.kind === "step" ? s2r.get(c.refId) : taskR.get(c.refId);
-    if (rid && (!last.get(rid) || c.day > last.get(rid))) {
-      last.set(rid, c.day);
-    }
-  }
-  return last;
-}
+import { roadmapProgress } from "./engine.js";
+// note: daysUntil deliberately *unclamped* here — a ≤0 result is how we detect a
+// roadmap that already slipped past its finish date (the planner clamps instead)
+import { dayKey, daysUntil, daysSince } from "./dates.js";
+import { lastActiveByRoadmap } from "./project.js";
 
 const NEGLECT_DAYS = 7;
-
-/** Days from `today` until `target` inclusive (≥1); negative-ish handled by caller. */
-function daysUntil(target, today) {
-  return (
-    Math.round((Date.parse(`${target}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) +
-    1
-  );
-}
 
 /**
  * Up to `limit` short nudges, most useful first: overdue → near-done → neglected.

@@ -17,7 +17,8 @@ import {
   setPlanSkip,
   ConflictError,
 } from "./db.js";
-import { buildToday, momentum, dayKey } from "./engine.js";
+import { buildToday, momentum } from "./engine.js";
+import { dayKey } from "./dates.js";
 import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
 import { weeklyReview } from "./review.js";

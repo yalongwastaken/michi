@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { localDay } from "./dates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.MICHI_DB || join(__dirname, "data", "michi.db");
@@ -155,15 +156,6 @@ const SETTING_RANGES = {
   defaultStepMin: [0, 1440],
   taskDefaultMin: [0, 1440],
 };
-
-/** Local YYYY-MM-DD for an ISO timestamp — the mini PC runs in the user's tz. */
-function localDayKey(iso) {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ??
@@ -463,7 +455,7 @@ export function addTask(t) {
  */
 export function setDone(kind, id, done, now = new Date().toISOString()) {
   const table = kind === "step" ? "steps" : "tasks";
-  const day = localDayKey(now);
+  const day = localDay(now); // bucket by the local day (shared with the engine)
   db.exec("BEGIN");
   try {
     const status = done ? "done" : "todo";
