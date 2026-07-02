@@ -3,92 +3,19 @@
 // assembles a doable day that fits a time budget. Pure + deterministic, so it works on
 // any hardware with no dependencies; an optional local model can refine its output
 // (see suggest.js), but the planner is always the dependable fallback.
-import { dayKey, recurringDueToday, localDay } from "./engine.js";
-
-/** Whole days from `today` until `target` (inclusive of today); ≥1, or null. */
-function daysUntil(target, today) {
-  if (!target) {
-    return null;
-  }
-  const diff = Math.round(
-    (Date.parse(`${target}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000,
-  );
-  return Math.max(1, diff + 1); // a deadline today (or past) means "all of it, now"
-}
+import { recurringDueToday } from "./engine.js";
+import { dayKey, localDay, daysUntil } from "./dates.js";
+import { stepLine, taskLine, stepToRoadmap, lastActiveByRoadmap } from "./project.js";
 
 const itemKey = (kind, id) => `${kind}:${id}`;
 
-/** Lightweight projections the client renders (mirrors the Today queue shapes). */
-function stepLine(step, milestone, roadmap, reason, estMin) {
-  return {
-    kind: "step",
-    id: step.id,
-    title: step.title,
-    status: step.status,
-    resourceUrl: step.resourceUrl || null,
-    roadmapId: roadmap.id,
-    roadmapTitle: roadmap.title,
-    roadmapColor: roadmap.color || null,
-    milestoneTitle: milestone.title,
-    reason,
-    estMin,
-  };
-}
-function taskLine(task, reason, estMin) {
-  return {
-    kind: "task",
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    due: task.due || null,
-    recurrence: task.recurrence || null,
-    stepId: task.stepId || null,
-    projectId: task.projectId || null,
-    reason,
-    estMin,
-  };
-}
-
-/** Map each step id → its roadmap id (via its milestone). */
-function stepToRoadmap(state) {
-  const mToR = new Map((state.milestones || []).map((m) => [m.id, m.roadmapId]));
-  const map = new Map();
-  for (const s of state.steps || []) {
-    const rid = mToR.get(s.milestoneId);
-    if (rid) {
-      map.set(s.id, rid);
-    }
-  }
-  return map;
-}
-
-/** Most recent local day each roadmap saw activity (from the completion log). */
-function lastActiveByRoadmap(state, s2r) {
-  const last = new Map();
-  const bump = (rid, day) => {
-    if (!rid || !day) {
-      return;
-    }
-    const cur = last.get(rid);
-    if (!cur || day > cur) {
-      last.set(rid, day);
-    }
-  };
-  const taskRoadmap = new Map();
-  for (const t of state.tasks || []) {
-    if (t.stepId && s2r.has(t.stepId)) {
-      taskRoadmap.set(t.id, s2r.get(t.stepId));
-    }
-  }
-  for (const c of state.completions || []) {
-    if (c.kind === "step") {
-      bump(s2r.get(c.refId), c.day);
-    } else if (c.kind === "task") {
-      bump(taskRoadmap.get(c.refId), c.day);
-    }
-  }
-  return last;
-}
+/**
+ * Lane key for loose (undated, non-recurring) tasks in the rotation pass. The lane
+ * map is otherwise keyed by roadmap ids; a Symbol lives outside that string
+ * namespace entirely, so no imported roadmap id can ever collide with it (the old
+ * `" loose"` string sentinel merely *hoped* no roadmap would use that id).
+ */
+export const LOOSE_TASKS_LANE = Symbol("michi.planner.looseTasks");
 
 /**
  * Build a doable day.
@@ -138,7 +65,7 @@ export function planDay(state, opts = {}) {
       (!t.recurrence && t.status !== "done" && t.due && t.due <= today) ||
       (!!t.recurrence && recurringDueToday(t, today));
     if (obligated) {
-      push(taskLine(t, t.due && t.due < today ? "overdue" : "due", taskMin(t)));
+      push(taskLine(t, { reason: t.due && t.due < today ? "overdue" : "due", estMin: taskMin(t) }));
     }
   }
 
@@ -166,12 +93,13 @@ export function planDay(state, opts = {}) {
       for (const s of (stepsByMs.get(m.id) || [])
         .filter((x) => x.status !== "done" && !skipped("step", x.id))
         .sort((a, b) => a.position - b.position)) {
-        q.push(stepLine(s, m, r, "rotate", stepCost(r)));
+        q.push(stepLine(s, m, r, { reason: "rotate", estMin: stepCost(r) }));
       }
     }
     q.sort((a, b) => (b.status === "doing") - (a.status === "doing"));
     if (q.length) {
-      const daysLeft = daysUntil(r.targetDate, today);
+      // clamp: a deadline today (or past) means "all of it, now", never ÷0
+      const daysLeft = daysUntil(r.targetDate, today, { clamp: true });
       const perDay = daysLeft ? Math.ceil(q.length / daysLeft) : 0;
       queues.set(r.id, { steps: q, targetDate: r.targetDate || null, daysLeft, perDay });
     }
@@ -210,14 +138,13 @@ export function planDay(state, opts = {}) {
     return 0;
   });
 
-  const TASKS_LANE = " loose";
   const loose = tasks
     .filter((t) => !t.recurrence && t.status !== "done" && !t.due && !skipped("task", t.id))
-    .map((t) => taskLine(t, "rotate", taskMin(t)));
+    .map((t) => taskLine(t, { reason: "rotate", estMin: taskMin(t) }));
   const laneOrder = [...rotateIds];
   if (loose.length) {
-    queues.set(TASKS_LANE, { steps: loose });
-    laneOrder.push(TASKS_LANE);
+    queues.set(LOOSE_TASKS_LANE, { steps: loose });
+    laneOrder.push(LOOSE_TASKS_LANE);
   }
 
   let progress = true;

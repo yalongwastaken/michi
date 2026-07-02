@@ -10,7 +10,9 @@
 // re-orders / re-selects from a known-good set.
 //
 // Enable with:  MICHI_LLM=1  (optionally MICHI_LLM_MODEL=…, MICHI_LLM_URL=…)
-import { localDay, recurringDueToday } from "./engine.js";
+import { recurringDueToday } from "./engine.js";
+import { localDay } from "./dates.js";
+import { stepLine, taskLine } from "./project.js";
 
 /** Is the optional model layer turned on? */
 export function aiEnabled() {
@@ -60,17 +62,7 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
         recurrence: t.recurrence || null,
         estMin,
       },
-      {
-        kind: "task",
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        due: t.due || null,
-        recurrence: t.recurrence || null,
-        stepId: t.stepId || null,
-        projectId: t.projectId || null,
-        estMin,
-      },
+      taskLine(t, { estMin }), // shared client shape (see project.js)
     );
   }
 
@@ -107,18 +99,7 @@ export function buildCandidates(state, { today, taskDefaultMin = 20, defaultStep
             status: s.status,
             estMin: rStepMin,
           },
-          {
-            kind: "step",
-            id: s.id,
-            title: s.title,
-            status: s.status,
-            resourceUrl: s.resourceUrl || null,
-            roadmapId: r.id,
-            roadmapTitle: r.title,
-            roadmapColor: r.color || null,
-            milestoneTitle: m.title,
-            estMin: rStepMin,
-          },
+          stepLine(s, m, r, { estMin: rStepMin }), // shared client shape (see project.js)
         );
         taken += 1;
       }

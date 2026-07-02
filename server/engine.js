@@ -2,65 +2,10 @@
 //   buildToday(state, opts)  → the focused daily queue ("what should I do today?")
 //   momentum(state, opts)    → streak / heatmap / progress summary
 // Pure and side-effect free so they're trivial to unit-test and safe to call often.
-
-/** Local YYYY-MM-DD for a Date (server-local; the client may pass its own day). */
-export function dayKey(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Day-of-week 0..6 (Sun..Sat) for a YYYY-MM-DD string, in a tz-stable way. */
-export function dow(dayStr) {
-  // append midday UTC so DST / tz never shifts the calendar day
-  return new Date(`${dayStr}T12:00:00Z`).getUTCDay();
-}
-
-/**
- * Local calendar day (YYYY-MM-DD) for a stored ISO timestamp. done_at is stamped
- * in UTC, but everything the user sees is bucketed by *their* day — and the mini PC
- * runs in their timezone. Bucketing here with the server's local tz keeps streaks
- * and the heatmap aligned with `dayKey()` (also local); slicing the raw UTC string
- * would mis-file evening completions for anyone west of UTC.
- */
-export function localDay(iso) {
-  return iso ? dayKey(new Date(iso)) : null;
-}
-
-/** Step → minimal shape the client renders in the queue. */
-function stepLine(step, milestone, roadmap) {
-  return {
-    kind: "step",
-    id: step.id,
-    title: step.title,
-    status: step.status,
-    resourceUrl: step.resourceUrl || null,
-    roadmapId: roadmap?.id || null,
-    roadmapTitle: roadmap?.title || null,
-    roadmapColor: roadmap?.color || null,
-    milestoneTitle: milestone?.title || null,
-  };
-}
-
-/**
- * Task → minimal shape the client renders in the queue. `forceTodo` presents a
- * recurring task that's pending for today as actionable, even though its stored
- * status may still be "done" from a previous day's completion.
- */
-function taskLine(task, forceTodo = false) {
-  return {
-    kind: "task",
-    id: task.id,
-    title: task.title,
-    status: forceTodo ? "todo" : task.status,
-    due: task.due || null,
-    recurrence: task.recurrence || null,
-    estMin: task.estMin ?? null,
-    stepId: task.stepId || null,
-    projectId: task.projectId || null,
-  };
-}
+// Date math lives in dates.js; the queue line shapes in project.js — both shared
+// with the planner/insights/review so the copies can't drift apart.
+import { dayKey, dow, localDay, prevDay } from "./dates.js";
+import { stepLine, taskLine } from "./project.js";
 
 /**
  * Is a recurring task "due" on `today`?  daily → always; weekdays → Mon–Fri;
@@ -117,7 +62,7 @@ export function buildToday(state, { today = dayKey(), limit = 5 } = {}) {
       // recurring tasks live entirely off their cadence — their `due` is just a
       // weekly anchor, never an "overdue" date. Surface as actionable for today.
       if (recurringDueToday(t, today)) {
-        dueToday.push(taskLine(t, true));
+        dueToday.push(taskLine(t, { status: "todo" })); // actionable again today
       }
       continue;
     }
@@ -196,13 +141,6 @@ export function activityByDay(state) {
     counts.set(c.day, (counts.get(c.day) || 0) + 1);
   }
   return counts;
-}
-
-/** Step back one calendar day from a YYYY-MM-DD string. */
-function prevDay(dayStr) {
-  const d = new Date(`${dayStr}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
 }
 
 /**

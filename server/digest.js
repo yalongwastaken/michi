@@ -2,7 +2,8 @@
 // Self-hosted-friendly: a cron job on the mini PC can curl /api/digest?format=text and
 // pipe it to a local notifier (ntfy, terminal-notifier, notify-send) — no cloud, no
 // outbound calls from Michi itself. Pure over the state + planner opts.
-import { dayKey, momentum } from "./engine.js";
+import { momentum } from "./engine.js";
+import { dayKey } from "./dates.js";
 import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
 

@@ -1,13 +1,8 @@
 // review.js — a look back at the last N days: what you finished, which roadmaps moved,
 // and what slipped. Pure over the completion log + current model. Titles are resolved
 // from the *current* rows (a since-deleted item shows as "(removed)").
-import { dayKey, roadmapProgress } from "./engine.js";
-
-function shiftDay(day, n) {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
+import { roadmapProgress } from "./engine.js";
+import { dayKey, shiftDay } from "./dates.js";
 
 /**
  * @param {Object} state full model
