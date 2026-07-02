@@ -50,7 +50,9 @@ function planOpts(state, day, overrides = {}) {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const app = express();
+// exported so http.test.js can boot the real app on an ephemeral port; the module
+// only grabs the real port when run as the main entry (see the bottom of the file)
+export const app = express();
 app.disable("x-powered-by"); // don't advertise the framework
 app.use(express.json({ limit: "5mb" }));
 
@@ -301,16 +303,23 @@ app.use((err, _req, res, _next) => {
   }
 });
 
-const PORT = process.env.PORT || 4001;
-const HOST = process.env.HOST || "0.0.0.0";
-const server = app.listen(PORT, HOST, () => console.log(`michi server on http://${HOST}:${PORT}`));
-// without this, a bind failure throws unhandled and systemd (RestartSec=3) loops it
-// tight forever — log something actionable and exit cleanly instead
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    console.error(`michi: port ${PORT} already in use — is another instance running?`);
-  } else {
-    console.error(`michi: could not listen on ${HOST}:${PORT} — ${err.message}`);
-  }
-  process.exit(1);
-});
+// listen only when this file is the entry point (`node index.js` / systemd) —
+// importing the app (integration tests) must not bind the production port. Node
+// resolves argv[1] to an absolute path, so it matches this module's own path.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const PORT = process.env.PORT || 4001;
+  const HOST = process.env.HOST || "0.0.0.0";
+  const server = app.listen(PORT, HOST, () =>
+    console.log(`michi server on http://${HOST}:${PORT}`),
+  );
+  // without this, a bind failure throws unhandled and systemd (RestartSec=3) loops it
+  // tight forever — log something actionable and exit cleanly instead
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`michi: port ${PORT} already in use — is another instance running?`);
+    } else {
+      console.error(`michi: could not listen on ${HOST}:${PORT} — ${err.message}`);
+    }
+    process.exit(1);
+  });
+}
