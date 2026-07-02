@@ -191,6 +191,9 @@ export function validateState(s) {
   if (!s || typeof s !== "object") {
     return "body must be an object";
   }
+  // `completions` may be present (import validates + rebuilds the log) or absent —
+  // the everyday PUT ignores the key entirely, so a client that never saw the log
+  // (GET /api/state doesn't ship it) still validates cleanly
   for (const k of ["roadmaps", "milestones", "steps", "projects", "tasks", "completions"]) {
     if (s[k] != null && !Array.isArray(s[k])) {
       return `${k} must be an array`;
@@ -363,7 +366,14 @@ export function setPlanSkip(day, kind, id, on = true) {
 }
 
 // ── full state assembly (what GET /api/state returns) ───────────────────────────
-/** Assemble the full unified model from the normalized tables (flat arrays). */
+/**
+ * Assemble the unified model from the normalized tables (flat arrays) — WITHOUT
+ * the completions log. The log is append-only, server-owned history that grows
+ * forever; shipping it on GET /api/state and on every write response made each
+ * checkbox toggle download the whole history (and the client never reads it —
+ * streaks/heatmap come precomputed from /api/momentum). Use getFullState() where
+ * history genuinely belongs in the payload (export/import round-trips).
+ */
 export function getState() {
   return {
     rev: getRev(),
@@ -393,12 +403,24 @@ export function getState() {
         "SELECT id, title, status, due, recurrence, step_id AS stepId, project_id AS projectId, est_min AS estMin, position, notes, created_at AS createdAt, done_at AS doneAt FROM tasks ORDER BY position, created_at",
       )
       .all(),
-    completions: db
-      .prepare("SELECT id, day, kind, ref_id AS refId, ts FROM completions ORDER BY ts")
-      .all(),
     profile: getMeta("profile", DEFAULT_PROFILE),
     settings: getMeta("settings", DEFAULT_SETTINGS),
   };
+}
+
+/** The whole append-only completion log, oldest first. */
+function getCompletions() {
+  return db.prepare("SELECT id, day, kind, ref_id AS refId, ts FROM completions ORDER BY ts").all();
+}
+
+/**
+ * The unified model *including* the full completion log. For GET /api/export /
+ * POST /api/import responses (a backup must carry your streak history) and for
+ * the server-side computations (streaks, pacing, review) that read history.
+ * Everyday reads and write responses use getState() — see its doc comment.
+ */
+export function getFullState() {
+  return { ...getState(), completions: getCompletions() };
 }
 
 // ── lean writes (the common daily interactions — no full-state PUT) ─────────────
@@ -424,7 +446,7 @@ function pickTask(t, nowIso) {
 
 /**
  * Append a single task and bump the rev. Cheaper than re-sending the whole state.
- * @returns {Object} the fresh full state
+ * @returns {Object} the fresh state (sans completions log — see getState)
  */
 export function addTask(t) {
   db.exec("BEGIN");
@@ -451,7 +473,7 @@ export function addTask(t) {
  * @param {string} id
  * @param {boolean} done
  * @param {string} [now] ISO timestamp (injectable for tests)
- * @returns {Object} the fresh full state
+ * @returns {Object} the fresh state (sans completions log — see getState)
  */
 export function setDone(kind, id, done, now = new Date().toISOString()) {
   const table = kind === "step" ? "steps" : "tasks";
@@ -580,9 +602,11 @@ function replaceAll(state) {
 export class ConflictError extends Error {}
 
 /**
- * Replace the full state inside a transaction, bumping the rev.
+ * Replace the full state inside a transaction, bumping the rev. The completions
+ * log is deliberately untouched (see replaceCompletions): a `completions` key in
+ * the incoming body is simply ignored.
  * @param {number} [expectedRev] - if set and stale, throws ConflictError
- * @returns {Object} the fresh full state
+ * @returns {Object} the fresh state (sans completions log — see getState)
  */
 export function putState(state, expectedRev) {
   if (expectedRev != null && Number(expectedRev) !== getRev()) {
@@ -602,7 +626,7 @@ export function putState(state, expectedRev) {
 
 /**
  * Erase everything — all rows + the saved profile/settings — and start fresh.
- * @returns {Object} the fresh (empty) state
+ * @returns {Object} the fresh (empty) state (sans completions log — see getState)
  */
 export function resetAll() {
   db.exec("BEGIN");
@@ -648,6 +672,7 @@ function writeCompletionRows(rows = []) {
  * PUT deliberately leaves completions untouched (they're server-owned history that
  * client edits must never clobber); only a backup *import* rebuilds them, so a
  * restored backup brings your streak history back with it.
+ * @returns {Object} the fresh full state incl. the rebuilt completions log
  */
 export function replaceCompletions(rows = []) {
   db.exec("BEGIN");
@@ -659,7 +684,7 @@ export function replaceCompletions(rows = []) {
     db.exec("ROLLBACK");
     throw e;
   }
-  return getState();
+  return getFullState();
 }
 
 /**
@@ -667,7 +692,7 @@ export function replaceCompletions(rows = []) {
  * transaction. Running them as two separate transactions meant a failure in the
  * second half-applied the import (new tables, old history) while reporting an
  * error — the rollback here covers both.
- * @returns {Object} the fresh full state
+ * @returns {Object} the fresh full state incl. the imported completions log
  */
 export function importAll(state) {
   db.exec("BEGIN");
@@ -680,7 +705,7 @@ export function importAll(state) {
     db.exec("ROLLBACK");
     throw e;
   }
-  return getState();
+  return getFullState();
 }
 
 export { DEFAULT_PROFILE, DEFAULT_SETTINGS };
