@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { localDay } from "./dates.js";
+import { setActivitySource } from "./engine.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.MICHI_DB || join(__dirname, "data", "michi.db");
@@ -413,6 +414,61 @@ function getCompletions() {
   return db.prepare("SELECT id, day, kind, ref_id AS refId, ts FROM completions ORDER BY ts").all();
 }
 
+// ── in-memory activity summary (what momentum reads instead of the raw log) ─────
+// The completions log is unbounded and append-only, and every dashboard request
+// used to re-aggregate all of it. Keep a small day→{tasks,steps} counter map (plus
+// lifetime totals) in memory instead: built lazily from one GROUP BY, nudged
+// incrementally by the toggle path, and dropped whenever the log is rewritten
+// wholesale (import / restore / reset) so the next read rebuilds from scratch.
+let activityCache = null;
+
+function buildActivityCache() {
+  const byDay = new Map();
+  const totals = { tasks: 0, steps: 0 };
+  const rows = db
+    .prepare("SELECT day, kind, COUNT(*) AS n FROM completions GROUP BY day, kind")
+    .all();
+  for (const { day, kind, n } of rows) {
+    const key = kind === "step" ? "steps" : "tasks";
+    const rec = byDay.get(day) || { tasks: 0, steps: 0 };
+    rec[key] += n;
+    totals[key] += n;
+    byDay.set(day, rec);
+  }
+  return { byDay, totals };
+}
+
+/** Day → {tasks, steps} counts + lifetime totals, cached across requests. */
+export function getActivitySummary() {
+  if (!activityCache) {
+    activityCache = buildActivityCache();
+  }
+  return activityCache;
+}
+
+/** Nudge the cache after a COMMITTED log insert/delete (no-op while unbuilt —
+ * the first read scans the fresh rows anyway). Never call before the commit:
+ * a rollback must leave the cache matching the untouched tables. */
+function bumpActivity(day, kind, delta) {
+  if (!activityCache) {
+    return;
+  }
+  const key = kind === "step" ? "steps" : "tasks";
+  const rec = activityCache.byDay.get(day) || { tasks: 0, steps: 0 };
+  rec[key] += delta;
+  activityCache.totals[key] += delta;
+  if (rec.tasks <= 0 && rec.steps <= 0) {
+    activityCache.byDay.delete(day); // an empty day must not count as "active"
+  } else {
+    activityCache.byDay.set(day, rec);
+  }
+}
+
+/** The log was rewritten wholesale — drop the cache and rebuild on next read. */
+function dropActivityCache() {
+  activityCache = null;
+}
+
 /**
  * The unified model *including* the full completion log. For GET /api/export /
  * POST /api/import responses (a backup must carry your streak history) and for
@@ -478,6 +534,7 @@ export function addTask(t) {
 export function setDone(kind, id, done, now = new Date().toISOString()) {
   const table = kind === "step" ? "steps" : "tasks";
   const day = localDay(now); // bucket by the local day (shared with the engine)
+  let logged = 0; // net completion-log rows added (+1) / removed (-1) this call
   db.exec("BEGIN");
   try {
     const status = done ? "done" : "todo";
@@ -490,22 +547,27 @@ export function setDone(kind, id, done, now = new Date().toISOString()) {
     }
     if (done) {
       // one completion per item per local day (UNIQUE makes re-completes a no-op)
-      db.prepare(
-        "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(?, ?, ?, ?, ?)",
-      ).run(newId(), day, kind, id, now);
+      const ins = db
+        .prepare(
+          "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(?, ?, ?, ?, ?)",
+        )
+        .run(newId(), day, kind, id, now);
+      logged = Number(ins.changes); // 0 on a same-day re-complete
     } else {
       // undo only retracts today's credit, not historical days you already earned
-      db.prepare("DELETE FROM completions WHERE kind = ? AND ref_id = ? AND day = ?").run(
-        kind,
-        id,
-        day,
-      );
+      const del = db
+        .prepare("DELETE FROM completions WHERE kind = ? AND ref_id = ? AND day = ?")
+        .run(kind, id, day);
+      logged = -Number(del.changes); // 0 when there was no credit today to retract
     }
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;
+  }
+  if (logged) {
+    bumpActivity(day, kind, logged); // only after the commit — see bumpActivity
   }
   return getState();
 }
@@ -641,6 +703,7 @@ export function resetAll() {
     db.exec("ROLLBACK");
     throw e;
   }
+  dropActivityCache(); // the log is gone — the summary must forget it too
   return getState();
 }
 
@@ -684,6 +747,7 @@ export function replaceCompletions(rows = []) {
     db.exec("ROLLBACK");
     throw e;
   }
+  dropActivityCache(); // wholesale rewrite — rebuild the summary on next read
   return getFullState();
 }
 
@@ -705,7 +769,12 @@ export function importAll(state) {
     db.exec("ROLLBACK");
     throw e;
   }
+  dropActivityCache(); // wholesale rewrite — rebuild the summary on next read
   return getFullState();
 }
+
+// Hand the engine our cached aggregate: every momentum() call in this process now
+// reads day-counts from memory instead of re-walking the raw completions log.
+setActivitySource(getActivitySummary);
 
 export { DEFAULT_PROFILE, DEFAULT_SETTINGS };

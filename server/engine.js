@@ -1,7 +1,10 @@
-// engine.js — Michi's brain. Two pure functions over the full state:
+// engine.js — Michi's brain. Two functions over the full state:
 //   buildToday(state, opts)  → the focused daily queue ("what should I do today?")
-//   momentum(state, opts)    → streak / heatmap / progress summary
+//   momentum(state, opts)    → streak / heatmap / XP / progress summary
 // Pure and side-effect free so they're trivial to unit-test and safe to call often.
+// (One deliberate seam: momentum reads its day-counts through a pluggable source —
+// see setActivitySource — so db.js can feed it a cached aggregate instead of the
+// raw, unbounded completions log. With nothing registered it stays fully pure.)
 // Date math lives in dates.js; the queue line shapes in project.js — both shared
 // with the planner/insights/review so the copies can't drift apart.
 import { dayKey, dow, localDay, prevDay } from "./dates.js";
@@ -144,6 +147,36 @@ export function activityByDay(state) {
 }
 
 /**
+ * Aggregate a raw completions log into the summary shape momentum reads:
+ * day → {tasks, steps} counts plus lifetime totals. db.getActivitySummary()
+ * returns the exact same shape from its incremental cache — this is the pure
+ * fallback for when no source is registered (unit tests, plain function calls).
+ */
+export function summarizeActivity(completions = []) {
+  const byDay = new Map();
+  const totals = { tasks: 0, steps: 0 };
+  for (const c of completions) {
+    if (!c?.day) {
+      continue;
+    }
+    const key = c.kind === "step" ? "steps" : "tasks";
+    const rec = byDay.get(c.day) || { tasks: 0, steps: 0 };
+    rec[key] += 1;
+    totals[key] += 1;
+    byDay.set(c.day, rec);
+  }
+  return { byDay, totals };
+}
+
+// The pluggable activity source: db.js registers its cached aggregate here at load
+// time, so every momentum() call in the running server skips re-walking the whole
+// completions log (and simply ignores any raw log riding along in `state`).
+let activitySource = null;
+export function setActivitySource(fn) {
+  activitySource = fn;
+}
+
+/**
  * Compute the current streak ending at/near `today`. Freezes let a limited number
  * of missed days be bridged before the streak breaks. Today not being done yet
  * doesn't break the streak — it just marks it "at risk".
@@ -194,6 +227,107 @@ export function longestStreak(daySet) {
   return longest;
 }
 
+// ── XP: distance walked on your path ──────────────────────────────────────────
+// The metaphor: every completion is meters walked. A roadmap step is a bigger
+// stride than a one-off task; levels are WAYPOINTS along the trail. Cumulative
+// distance for 1-based level n is 100·n·(n+1)/2 m — the triangular ramp makes the
+// early waypoints arrive fast and the later ones stretch out.
+export const METERS_PER = { step: 25, task: 10 };
+
+const WAYPOINTS = [
+  "Trailhead",
+  "First Marker",
+  "Mossy Steps",
+  "Stream Crossing",
+  "Bamboo Grove",
+  "Stone Lantern",
+  "Mountain Gate",
+  "Cedar Pass",
+  "High Meadow",
+  "Cloud Line",
+  "Ridge Walk",
+  "Summit",
+];
+
+/** Streak badge thresholds (days). Judged against the LONGEST streak ever, so a
+ * badge once earned stays earned even after the current streak breaks. */
+export const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100, 180, 365];
+
+/** Meters earned by {tasks, steps} completion counts. */
+export function metersFor({ tasks = 0, steps = 0 } = {}) {
+  return tasks * METERS_PER.task + steps * METERS_PER.step;
+}
+
+/** Cumulative meters needed to reach 1-based level n (level 0 starts at 0 m). */
+export function levelThreshold(n) {
+  return (100 * n * (n + 1)) / 2;
+}
+
+// tiny roman-numeral formatter for waypoint "laps" past the end of the list —
+// twelve names per lap, so even prolific walkers stay at II/III territory
+function roman(n) {
+  const table = [
+    [1000, "M"],
+    [900, "CM"],
+    [500, "D"],
+    [400, "CD"],
+    [100, "C"],
+    [90, "XC"],
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let out = "";
+  for (const [v, sym] of table) {
+    while (n >= v) {
+      out += sym;
+      n -= v;
+    }
+  }
+  return out;
+}
+
+/** Waypoint name for a level; past the list it cycles with a lap numeral, so
+ * level 12 is "Trailhead II" and level 23 "Summit II". Level 0 = "Trailhead". */
+export function waypointName(level) {
+  const name = WAYPOINTS[level % WAYPOINTS.length];
+  const lap = Math.floor(level / WAYPOINTS.length);
+  return lap ? `${name} ${roman(lap + 1)}` : name;
+}
+
+/**
+ * The full xp block for the momentum payload, from lifetime + today's counts.
+ * @param {{tasks:number, steps:number}} totals lifetime completion counts
+ * @param {{tasks:number, steps:number}} [todayCounts] today's completion counts
+ */
+export function xpSummary(totals, todayCounts) {
+  const totalM = metersFor(totals);
+  let level = 0;
+  while (levelThreshold(level + 1) <= totalM) {
+    level += 1;
+  }
+  const levelStartM = levelThreshold(level);
+  const nextLevelM = levelThreshold(level + 1);
+  return {
+    level,
+    name: waypointName(level),
+    totalM,
+    levelStartM,
+    nextLevelM,
+    progressPct: Math.round(((totalM - levelStartM) / (nextLevelM - levelStartM)) * 100),
+    todayM: metersFor(todayCounts || {}),
+  };
+}
+
+/** Streak badges as {days, earned} pairs, judged against the longest streak ever. */
+export function streakMilestones(longest) {
+  return STREAK_MILESTONES.map((days) => ({ days, earned: longest >= days }));
+}
+
 /** Per-roadmap progress: { id, title, done, total, pct }. */
 export function roadmapProgress(state) {
   const steps = state.steps || [];
@@ -227,7 +361,7 @@ export function roadmapProgress(state) {
 }
 
 /**
- * Momentum summary: streak, today's progress vs goal, a recent heatmap, totals.
+ * Momentum summary: streak, today's progress vs goal, a recent heatmap, XP, totals.
  * @param {Object} state
  * @param {Object} [opts] { today, heatDays=120 }
  */
@@ -240,30 +374,41 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
   // day-by-day (nearly) forever and wedge the event loop
   const freezes = Math.min(Math.max(Number(settings.streakFreezes) || 0, 0), 365);
 
-  const counts = activityByDay(state);
-  const todayCount = counts.get(today) || 0;
+  // the registered cache when db.js is loaded (the running server — any raw log in
+  // `state` is ignored there), the pure raw-log walk otherwise (unit tests)
+  const { byDay, totals } = activitySource
+    ? activitySource()
+    : summarizeActivity(state.completions);
+  const countOn = (day) => {
+    const rec = byDay.get(day);
+    return rec ? rec.tasks + rec.steps : 0;
+  };
+  const todayCount = countOn(today);
 
-  const { current, atRisk, freezesUsed } = computeStreak(counts, today, freezes);
+  const { current, atRisk, freezesUsed } = computeStreak(byDay, today, freezes);
+  const longest = longestStreak(byDay);
 
   // recent heatmap, oldest → newest, always exactly heatDays long
   const heat = [];
   let cursor = today;
   for (let i = 0; i < heatDays; i++) {
-    heat.unshift({ date: cursor, count: counts.get(cursor) || 0 });
+    heat.unshift({ date: cursor, count: countOn(cursor) });
     cursor = prevDay(cursor);
   }
 
-  const totalDone = [...counts.values()].reduce((a, b) => a + b, 0);
+  const totalDone = totals.tasks + totals.steps;
   const projects = state.projects || [];
 
   return {
     day: today,
-    streak: { current, longest: longestStreak(counts), atRisk, freezesUsed, freezes },
+    streak: { current, longest, atRisk, freezesUsed, freezes },
     todayCount,
     dailyGoal,
     metGoal: todayCount >= dailyGoal,
-    daysActive: counts.size,
+    daysActive: byDay.size,
     totalDone,
+    xp: xpSummary(totals, byDay.get(today)),
+    milestones: streakMilestones(longest),
     roadmaps: roadmapProgress(state),
     projects: {
       idea: projects.filter((p) => p.status === "idea").length,
