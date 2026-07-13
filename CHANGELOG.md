@@ -3,6 +3,42 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.9.0] — 2026-07-13
+
+### Added
+
+- **Trash & undo.** Deleting a roadmap (with its whole subtree), project, or task
+  is no longer fatal: the server snapshots it into a trash (30 days, newest 50),
+  a toast offers one-tap Undo, and Settings gains a Trash section with restore /
+  delete-forever / empty. Restores that collide with recreated ids remap to fresh
+  ones; JSON import and Claude sync never auto-trash (they're replace semantics).
+- **Backlog.** "All tasks" from Today: every task in one sheet — filter chips
+  (overdue / today / upcoming / undated / done), overdue-first sorting, optimistic
+  checkboxes, Today/+1d/+1w quick reschedule, tap to edit.
+- **Notes on steps and tasks.** A notes field in the task editor and a note glyph
+  on step/plan rows (tap to read, edit in place). Notes travel through the Claude
+  sync as `> blockquote` lines, so Claude can annotate your plan and you can
+  annotate back.
+- **Projects ↔ roadmaps.** Projects can link to the roadmap they exercise; the
+  card shows the roadmap's progress and jumps to it. Projects are reorderable
+  like everything else.
+- **Freeze earn-back.** Waypoints 4 and 8 each grant a bonus streak freeze
+  (capped at +2), on top of the freezes you set — the game layer now protects
+  the streak it celebrates.
+
+### Fixed
+
+- Deleting a roadmap or project left tasks/projects pointing at ghosts
+  (`task.stepId`, `task.projectId`, `project.roadmapId`); delete mutators now
+  null every inbound reference (centralized in `lib/mutate.js`), and the server
+  self-heals dangling links on write.
+
+### Tests
+
+- Server 148 (+24: trash diff/restore/remap/retention, project links, notes
+  grammar round-trips, earn-back); client 40 (+7: delete mutators, date helpers,
+  backlog/trash smoke coverage).
+
 ## [0.8.0] — 2026-07-13
 
 ### Added
