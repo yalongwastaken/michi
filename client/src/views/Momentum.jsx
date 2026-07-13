@@ -1,6 +1,147 @@
-import { Flame, Trophy, CalendarCheck, Rocket, Snowflake, Check } from "lucide-react";
-import { Card, ProgressBar, EmptyState } from "../ui.jsx";
-import { shortDate } from "../lib/format.js";
+import { Flame, Trophy, CalendarCheck, Rocket, Snowflake, Check, Milestone } from "lucide-react";
+import { Card, Badge, ProgressBar, EmptyState } from "../ui.jsx";
+import { shortDate, formatMeters } from "../lib/format.js";
+import Mascot from "./Mascot.jsx";
+
+// mirrors server/engine.js WAYPOINTS — the xp payload carries the *current* waypoint
+// name only, so the "next waypoint" caption resolves the following one client-side
+const WAYPOINTS = [
+  "Trailhead",
+  "First Marker",
+  "Mossy Steps",
+  "Stream Crossing",
+  "Bamboo Grove",
+  "Stone Lantern",
+  "Mountain Gate",
+  "Cedar Pass",
+  "High Meadow",
+  "Cloud Line",
+  "Ridge Walk",
+  "Summit",
+];
+// tiny roman-numeral formatter for waypoint "laps" — an exact mirror of
+// server/engine.js roman(), so client and server names can never drift
+function roman(n) {
+  const table = [
+    [1000, "M"],
+    [900, "CM"],
+    [500, "D"],
+    [400, "CD"],
+    [100, "C"],
+    [90, "XC"],
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let out = "";
+  for (const [v, sym] of table) {
+    while (n >= v) {
+      out += sym;
+      n -= v;
+    }
+  }
+  return out;
+}
+
+function nextWaypointName(level) {
+  const n = level + 1;
+  const name = WAYPOINTS[n % WAYPOINTS.length];
+  const lap = Math.floor(n / WAYPOINTS.length);
+  return lap ? `${name} ${roman(lap + 1)}` : name;
+}
+
+// waypoint/level card: how far along the trail you are, and what's next
+function WaypointCard({ xp }) {
+  const pct = Math.max(0, Math.min(100, xp.progressPct));
+  const toGo = Math.max(0, xp.nextLevelM - xp.totalM);
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <Milestone size={15} className="shrink-0 text-trail-600" />
+            <span className="truncate">{xp.name}</span>
+            <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">Lv {xp.level}</Badge>
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {formatMeters(toGo)} to {nextWaypointName(xp.level)}
+            {xp.todayM > 0 ? (
+              <span className="ml-1.5 font-medium text-trail-600 dark:text-trail-400">
+                +{xp.todayM} m today
+              </span>
+            ) : null}
+          </p>
+        </div>
+        <div className="-my-1 shrink-0">
+          <Mascot mood={xp.todayM > 0 ? "happy" : "neutral"} size={48} />
+        </div>
+      </div>
+      <div className="relative mt-3" aria-hidden="true">
+        <div className="h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-trail-500 to-iris-500 transition-[width] duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span
+          className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-trail-600 dark:border-slate-900"
+          style={{ left: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-between text-xs text-slate-400">
+        <span>{formatMeters(xp.levelStartM)}</span>
+        <span className="font-medium text-slate-500 dark:text-slate-400">
+          {formatMeters(xp.totalM)} walked
+        </span>
+        <span>{formatMeters(xp.nextLevelM)}</span>
+      </div>
+    </Card>
+  );
+}
+
+// one badge per streak milestone — earned fills iris, the rest wait as dashed outlines
+function BadgeRow({ milestones }) {
+  if (!milestones?.length) {
+    return null;
+  }
+  return (
+    <div>
+      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        Streak badges
+      </h3>
+      <Card className="p-4">
+        <ul className="flex gap-2.5 overflow-x-auto pb-1" aria-label="Streak badges">
+          {milestones.map(({ days, earned }) => (
+            <li
+              key={days}
+              aria-label={`${days}-day streak badge — ${earned ? "earned" : "not yet"}`}
+              title={`${days}-day streak${earned ? " — earned" : ""}`}
+              className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-full ${
+                earned
+                  ? "bg-iris-500 text-white shadow-sm"
+                  : "border-2 border-dashed border-slate-300 text-slate-400 dark:border-slate-600 dark:text-slate-500"
+              }`}
+            >
+              <Flame
+                size={13}
+                aria-hidden="true"
+                className={earned ? "text-iris-200" : "opacity-60"}
+              />
+              <span className="text-sm font-bold leading-tight">{days}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-slate-400">
+          Earned by your longest streak — once walked, never lost.
+        </p>
+      </Card>
+    </div>
+  );
+}
 
 function heatColor(count) {
   if (!count) {
@@ -105,6 +246,8 @@ export default function Momentum({ ctx }) {
         />
       </Card>
 
+      {m.xp ? <WaypointCard xp={m.xp} /> : null}
+
       <div className="grid grid-cols-3 gap-2.5">
         <Stat
           icon={Trophy}
@@ -125,6 +268,8 @@ export default function Momentum({ ctx }) {
           tint="bg-sky-50 text-sky-600 dark:bg-sky-950/40"
         />
       </div>
+
+      <BadgeRow milestones={m.milestones} />
 
       <Card className="p-4">
         <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -161,7 +306,9 @@ export default function Momentum({ ctx }) {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-slate-500">Nothing finished yet this week.</p>
+            <p className="text-sm text-slate-500">
+              A quiet week on the path so far — one step gets it moving.
+            </p>
           )}
           {review.advanced.length ? (
             <p className="mt-2 text-xs text-slate-500">Moved: {review.advanced.join(", ")}</p>

@@ -71,7 +71,7 @@ export function insights(state, { today = dayKey(), limit = 3 } = {}) {
     out.push({
       kind: "near-done",
       tone: "good",
-      text: `${near.title} is ${near.pct}% done — finish it off.`,
+      text: `${near.title} is ${near.pct}% done — the summit's in sight.`,
       roadmapId: near.id,
     });
   }
@@ -96,7 +96,7 @@ export function insights(state, { today = dayKey(), limit = 3 } = {}) {
     out.push({
       kind: "neglected",
       tone: "info",
-      text: `${worst.title} hasn't moved in ${worst.since} days — a quick step keeps it alive.`,
+      text: `${worst.title} hasn't moved in ${worst.since} days — one small step puts it back on the path.`,
       roadmapId: worst.id,
     });
   }

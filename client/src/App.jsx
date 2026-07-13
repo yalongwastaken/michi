@@ -9,7 +9,9 @@ import Projects from "./views/Projects.jsx";
 import Momentum from "./views/Momentum.jsx";
 import Settings from "./views/Settings.jsx";
 import Onboarding from "./views/Onboarding.jsx";
+import Celebration from "./views/Celebration.jsx";
 import { Logo } from "./views/Logo.jsx";
+import { checkCelebrations, confettiBurst } from "./lib/celebrate.js";
 
 const TABS = [
   { id: "today", label: "Today", icon: Sun },
@@ -28,6 +30,25 @@ function patchPlan(plan, kind, id, done) {
     return plan;
   }
   return { ...plan, items: plan.items.map((it) => flip(it, kind, id, done)) };
+}
+
+const LOADING_LINES = ["finding the trail…", "lacing boots…", "reading the map…"];
+
+function Loading() {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      return undefined; // one steady line is calmer
+    }
+    const t = setInterval(() => setI((v) => (v + 1) % LOADING_LINES.length), 1800);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <Logo className="h-10 w-10 animate-pulse" />
+      <p className="text-xs text-slate-400">{LOADING_LINES[i]}</p>
+    </div>
+  );
 }
 
 function patchToday(today, kind, id, done) {
@@ -55,8 +76,11 @@ export default function App({ onTheme }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [celebration, setCelebration] = useState(null);
 
-  const day = todayKey();
+  // today's key is state (not a per-render constant) so an installed PWA that sits
+  // open overnight rolls over to the new day when it refetches
+  const [day, setDay] = useState(todayKey);
 
   // latest state, readable inside queued writes (closures would otherwise be stale)
   const stateRef = useRef(null);
@@ -67,32 +91,54 @@ export default function App({ onTheme }) {
 
   // serialize every write (see lib/queue.js) so two quick edits can't race the
   // optimistic-concurrency rev into a 409; the busy flag spans the whole queue.
-  const enqueue = useRef(createQueue(setBusy)).current;
+  // Lazy init: createQueue must run once, not on every render.
+  const [enqueue] = useState(() => createQueue(setBusy));
 
   // monotonic guard: derived-data responses can arrive out of order (a slow AI replan
   // vs a quick dashboard refresh), so only the most recently *issued* request applies.
   const derivedSeqRef = useRef(0);
 
-  // one round-trip for the whole Today screen (queue + momentum + plan + nudges)
+  // "one more" raises the day's budget; hold it here so later refreshes rebuild the
+  // plan at the same size instead of shrinking back to settings. Cleared on rollover,
+  // and whenever a save changes settings.dailyMinutes — an explicit budget choice
+  // (chips, Settings) must always beat a stale boost.
+  const budgetBoostRef = useRef(null); // { day, budget } | null
+
+  // when the last derived refresh landed — throttles the wake-up listeners below
+  const lastDerivedAtRef = useRef(0);
+
+  // one round-trip for the whole Today screen (queue + momentum + plan + nudges).
+  // Reads the clock at call time so every refresh targets the *current* day.
   const refreshDerived = useCallback(async () => {
+    const d = todayKey();
+    setDay(d);
+    if (budgetBoostRef.current && budgetBoostRef.current.day !== d) {
+      budgetBoostRef.current = null; // the boost belonged to a day that's over
+    }
     const seq = ++derivedSeqRef.current;
-    const d = await api.dashboard(day);
+    const resp = await api.dashboard(d, { budget: budgetBoostRef.current?.budget });
     if (seq !== derivedSeqRef.current) {
       return; // a newer request superseded this one
     }
-    setToday(d.today);
-    setMomentum(d.momentum);
-    setPlan(d.plan);
-    setNudges(d.insights || []);
-    setReview(d.review || null);
-  }, [day]);
+    lastDerivedAtRef.current = Date.now();
+    setToday(resp.today);
+    setMomentum(resp.momentum);
+    setPlan(resp.plan);
+    setNudges(resp.insights || []);
+    setReview(resp.review || null);
+  }, []);
 
   // re-run the planner; {ai:true} asks the local model, {budget} overrides the budget
   const replan = useCallback(
     async ({ ai = false, budget } = {}) => {
       const seq = ++derivedSeqRef.current;
       try {
-        const p = await api.plan(day, { ai, budget });
+        if (budget != null) {
+          budgetBoostRef.current = { day, budget }; // keep "one more" across refreshes
+        }
+        const boost =
+          budgetBoostRef.current?.day === day ? budgetBoostRef.current.budget : undefined;
+        const p = await api.plan(day, { ai, budget: boost });
         if (seq === derivedSeqRef.current) {
           setPlan(p);
         }
@@ -139,33 +185,107 @@ export default function App({ onTheme }) {
     load();
   }, [load]);
 
+  // game layer: each fresh momentum payload is checked against the last-celebrated
+  // record (localStorage) — at most one confetti burst + toast per new feat
+  useEffect(() => {
+    const ev = checkCelebrations(momentum);
+    if (ev) {
+      confettiBurst();
+      setCelebration(ev);
+    }
+  }, [momentum]);
+
+  // resilience: an installed PWA sits open for days — when the app comes back into
+  // view (or the network returns), catch up. A day rollover reloads everything
+  // (yesterday's plan, greeting, and streak are stale); otherwise a derived refresh
+  // suffices, throttled so focus + visibilitychange firing together don't double-hit.
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      if (todayKey() !== day) {
+        load(); // slept past midnight — refetch the full state, not just the plan
+        return;
+      }
+      if (Date.now() - lastDerivedAtRef.current < 15000) {
+        return; // refreshed moments ago
+      }
+      refreshDerived().catch(() => {}); // best-effort; the next wake retries
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [day, load, refreshDerived]);
+
+  // the wake listeners only fire on transitions — a device that just stays visible
+  // (a kiosk, a propped-up tablet) would sit on yesterday forever. A slow tick
+  // catches midnight for that case; hidden tabs skip it (visibilitychange handles
+  // the return), so this never wakes a backgrounded phone.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!document.hidden && todayKey() !== day) {
+        load(); // same rollover path as the wake handler: full refetch
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, [day, load]);
+
   // full-state edit: clone latest → mutate → PUT (with fresh rev) → adopt → refresh.
   // Resolves to true on success, false on failure (never throws — callers can await).
   const save = useCallback(
     (mutator) =>
       enqueue(async () => {
-        const cur = stateRef.current;
-        if (!cur) {
+        if (!stateRef.current) {
           return false;
         }
-        try {
-          const next = structuredClone(cur);
+        // remembered so a save that changes the budget can retire a "one more" boost
+        const budgetBefore = stateRef.current.settings?.dailyMinutes;
+        // clone the latest truth, apply the edit, PUT with that truth's rev
+        const attempt = () => {
+          const next = structuredClone(stateRef.current);
           mutator(next);
-          const saved = await api.putState({ ...next, rev: cur.rev });
-          applyState(saved);
-          onTheme?.(saved.settings?.theme || "system");
-          await refreshDerived();
-          setError(null);
-          return true;
+          return api.putState({ ...next, rev: stateRef.current.rev });
+        };
+        let saved;
+        try {
+          saved = await attempt();
         } catch (e) {
-          if (e.status === 409) {
-            await load(); // someone saved first — reload the truth
+          if (e.status !== 409) {
+            setError(e.message || "save failed");
+            return false;
           }
-          setError(e.message || "save failed");
-          return false;
+          // someone saved first — adopt the fresh truth (the 409 carries it),
+          // re-apply the edit on top, and retry once before bothering the user
+          try {
+            applyState(e.body?.state || (await api.getState()));
+            saved = await attempt();
+          } catch (e2) {
+            setError(e2.message || "save failed");
+            return false;
+          }
         }
+        applyState(saved);
+        onTheme?.(saved.settings?.theme || "system");
+        if (saved.settings?.dailyMinutes !== budgetBefore) {
+          budgetBoostRef.current = null; // a chosen budget beats a stale "one more"
+        }
+        setError(null);
+        // the PUT succeeded — a failed follow-up refresh must not report failure
+        // (the modal would stay open and a retry would duplicate the edit)
+        try {
+          await refreshDerived();
+        } catch {
+          setError("saved — couldn't refresh the plan");
+        }
+        return true;
       }),
-    [enqueue, applyState, onTheme, refreshDerived, load],
+    [enqueue, applyState, onTheme, refreshDerived],
   );
 
   // lean completion toggle (the hot path) — serialized for ordering, optimistic for feel
@@ -177,13 +297,27 @@ export default function App({ onTheme }) {
       return enqueue(async () => {
         try {
           applyState(await api.complete(kind, id, done));
-          await refreshDerived();
-          return true;
         } catch (e) {
+          // the POST failed — undo the optimistic flip locally first, because the
+          // server is likely unreachable and a truth-refresh would fail the same way
+          setPlan((p) => patchPlan(p, kind, id, !done));
+          setToday((t) => patchToday(t, kind, id, !done));
           setError(e.message || "could not update");
-          await refreshDerived(); // roll the optimistic flip back to server truth
+          try {
+            await refreshDerived(); // best-effort reconcile with server truth
+          } catch {
+            /* still offline — the local revert above already put things right */
+          }
           return false;
         }
+        // the POST succeeded — a failed follow-up refresh must not report failure
+        // (same contract as save(): the tick landed, only the replan is stale)
+        try {
+          await refreshDerived();
+        } catch {
+          setError("saved — couldn't refresh the plan");
+        }
+        return true;
       });
     },
     [enqueue, applyState, refreshDerived],
@@ -216,14 +350,29 @@ export default function App({ onTheme }) {
             </button>
           </div>
         ) : (
-          <Logo className="h-10 w-10 animate-pulse" />
+          <Loading />
         )}
       </div>
     );
   }
 
+  // the banner has to exist during onboarding too — a failed first save is invisible otherwise
+  const errorBanner = error ? (
+    <div
+      role="alert"
+      className="mx-4 mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+    >
+      <AlertTriangle size={15} /> {error}
+    </div>
+  ) : null;
+
   if (!state.profile?.onboarded) {
-    return <Onboarding save={save} busy={busy} />;
+    return (
+      <>
+        {errorBanner}
+        <Onboarding save={save} busy={busy} />
+      </>
+    );
   }
 
   const ctx = {
@@ -254,7 +403,7 @@ export default function App({ onTheme }) {
               <h1 className="text-xl font-semibold leading-none text-slate-800 dark:text-slate-100">
                 Michi
               </h1>
-              <p className="text-xs text-slate-500">find your way</p>
+              <p className="text-xs text-slate-500">one step down the path, every day</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -262,7 +411,7 @@ export default function App({ onTheme }) {
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold ${
                   momentum.streak.atRisk
-                    ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40"
+                    ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300"
                     : "bg-iris-500/15 text-iris-600 dark:text-iris-300"
                 }`}
                 title={momentum.streak.atRisk ? "do something today to keep it!" : "current streak"}
@@ -283,14 +432,7 @@ export default function App({ onTheme }) {
         </div>
       </header>
 
-      {error ? (
-        <div
-          role="alert"
-          className="mx-4 mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40"
-        >
-          <AlertTriangle size={15} /> {error}
-        </div>
-      ) : null}
+      {errorBanner}
 
       <main className="flex-1 px-4 py-4 pb-28">
         {tab === "today" && <Today ctx={ctx} />}
@@ -336,6 +478,9 @@ export default function App({ onTheme }) {
       </nav>
 
       {settingsOpen && <Settings ctx={ctx} onClose={() => setSettingsOpen(false)} />}
+      {celebration ? (
+        <Celebration event={celebration} onClose={() => setCelebration(null)} />
+      ) : null}
     </div>
   );
 }

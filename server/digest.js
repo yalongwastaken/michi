@@ -39,7 +39,7 @@ export function buildDigest(state, opts = {}) {
       `Streak: ${st.current} day${st.current > 1 ? "s" : ""}${st.atRisk ? " (at risk — do one thing today)" : ""}`,
     );
   } else {
-    lines.push("No streak yet — start one today.");
+    lines.push("No streak yet — today makes a fine step one.");
   }
 
   if (plan.items.length) {
@@ -52,7 +52,7 @@ export function buildDigest(state, opts = {}) {
     }
   } else {
     lines.push("");
-    lines.push("Nothing planned — add a task or a roadmap step.");
+    lines.push("Nothing planned — add a task or a roadmap step, and the path appears.");
   }
 
   if (nudges.length) {
