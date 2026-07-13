@@ -425,6 +425,118 @@ test("milestone headings match by title within their roadmap; ambiguity creates 
   assert.ok(amb.warnings.some((w) => /2 roadmaps titled "Dup"/.test(w)));
 });
 
+test("re-applying the same reply is idempotent — zero creates, zero updates", () => {
+  db.importAll(SEED);
+  // a realistic mixed reply: a brand-new roadmap tree, new tasks, and anchored edits
+  const doc = [
+    "## Roadmap: Kernel",
+    "target: 2026-12-01",
+    "### Milestone: Memory",
+    "- [ ] Read the slab notes ~40m",
+    "- [~] Page tables lab https://kernel.org/lab",
+    "## Tasks",
+    "- [x] Read datasheet {#t1} due:2026-07-15",
+    "- [ ] Order jumper wires ~10m",
+    "- [ ] Flash bootloader due:2026-07-20",
+  ].join("\n");
+  const parsed = md.parseSync(doc);
+  const result = md.applySync(parsed);
+  assert.deepEqual(result.applied.createdCounts, {
+    roadmaps: 1,
+    milestones: 1,
+    steps: 2,
+    projects: 0,
+    tasks: 2,
+  });
+  assert.equal(result.applied.updatedCounts.tasks, 1);
+  // careless re-paste of the SAME reply: everything resolves by title, nothing changes
+  const again = md.planSync(parsed, result.state);
+  assert.deepEqual(again.updates, []);
+  for (const items of Object.values(again.creates)) {
+    assert.deepEqual(items, []);
+  }
+  assert.ok(again.warnings.some((w) => /matched .* by title/.test(w)));
+});
+
+test("anchor-less step matches by title within its milestone — no cross-milestone match", () => {
+  const state = {
+    roadmaps: [{ id: "r1", title: "R", position: 0 }],
+    milestones: [
+      { id: "mA", roadmapId: "r1", title: "Alpha", position: 0 },
+      { id: "mB", roadmapId: "r1", title: "Beta", position: 1 },
+    ],
+    steps: [
+      { id: "sA", milestoneId: "mA", title: "Setup", status: "todo", position: 0, doneAt: null },
+      { id: "sB", milestoneId: "mB", title: "Setup", status: "todo", position: 0, doneAt: null },
+    ],
+    projects: [],
+    tasks: [],
+  };
+  const plan = md.planSync(
+    md.parseSync("## Roadmap: R\n### Milestone: Beta\n- [x] Setup\n"),
+    state,
+  );
+  // "Setup" exists in both milestones, but the doc placed it under Beta — only sB
+  assert.deepEqual(plan.creates.steps, []);
+  assert.equal(plan.updates.length, 1);
+  assert.equal(plan.updates[0].kind, "step");
+  assert.equal(plan.updates[0].id, "sB");
+  assert.equal(plan.updates[0].changes.status.to, "done");
+  assert.ok(plan.warnings.some((w) => /step without an anchor matched "Setup" by title/.test(w)));
+});
+
+test("anchor-less task matches by title — updates due instead of duplicating", () => {
+  const state = {
+    roadmaps: [],
+    milestones: [],
+    steps: [],
+    projects: [],
+    tasks: [
+      { id: "t9", title: "Pay rent", status: "todo", due: "2026-07-01", position: 0, doneAt: null },
+    ],
+  };
+  const plan = md.planSync(md.parseSync("## Tasks\n- [ ] Pay rent due:2026-08-01\n"), state);
+  assert.deepEqual(plan.creates.tasks, []);
+  assert.equal(plan.updates.length, 1);
+  assert.equal(plan.updates[0].id, "t9");
+  assert.deepEqual(plan.updates[0].changes, { due: { from: "2026-07-01", to: "2026-08-01" } });
+  assert.ok(
+    plan.warnings.some((w) => /task without an anchor matched "Pay rent" by title/.test(w)),
+  );
+});
+
+test("ambiguous anchor-less task title — creates a new one, with a warning", () => {
+  const state = {
+    roadmaps: [],
+    milestones: [],
+    steps: [],
+    projects: [],
+    tasks: [
+      { id: "d1", title: "Dup task", status: "todo", position: 0, doneAt: null },
+      { id: "d2", title: "Dup task", status: "todo", position: 1, doneAt: null },
+    ],
+  };
+  const plan = md.planSync(md.parseSync("## Tasks\n- [x] Dup task\n"), state);
+  assert.deepEqual(plan.updates, []);
+  assert.equal(plan.creates.tasks.length, 1);
+  assert.ok(plan.warnings.some((w) => /2 tasks titled "Dup task"/.test(w)));
+});
+
+test("duplicate anchor-less lines in one doc merge into a single create", () => {
+  const state = { roadmaps: [], milestones: [], steps: [], projects: [], tasks: [] };
+  const plan = md.planSync(
+    md.parseSync("## Tasks\n- [ ] Buy solder ~10m\n- [x] Buy solder due:2026-07-20\n"),
+    state,
+  );
+  assert.equal(plan.creates.tasks.length, 1);
+  const t = plan.creates.tasks[0];
+  assert.equal(t.estMin, 10); // from the first line, kept
+  assert.equal(t.due, "2026-07-20"); // from the second line, overlaid
+  assert.equal(t.status, "done");
+  assert.ok(t.doneAt);
+  assert.ok(plan.warnings.some((w) => /duplicate task "Buy solder" — lines merged/.test(w)));
+});
+
 test("Project and Tasks headings clear roadmap context — stray milestones skip their subtree", () => {
   const afterProject = md.parseSync(
     [
