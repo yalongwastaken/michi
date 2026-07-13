@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, Hammer, Github, Trash2, Rocket, Lightbulb, Circle, ArrowRight } from "lucide-react";
 import {
   Card,
   Button,
-  IconButton,
+  ConfirmButton,
   Input,
   Field,
   Textarea,
@@ -65,9 +65,9 @@ function ProjectCard({ p, ctx }) {
           <h3 className="font-semibold text-slate-800 dark:text-slate-100">{p.title}</h3>
           {p.summary ? <p className="mt-0.5 text-sm text-slate-500">{p.summary}</p> : null}
         </div>
-        <IconButton label="Delete project" className="hover:text-rose-500" onClick={remove}>
+        <ConfirmButton label="Delete project" onConfirm={remove} className="h-10 min-w-10 shrink-0">
           <Trash2 size={16} />
-        </IconButton>
+        </ConfirmButton>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {p.repoUrl ? (
@@ -105,11 +105,13 @@ function NewProjectModal({ ctx, onClose }) {
   const [repoUrl, setRepoUrl] = useState("");
   const [status, setStatus] = useState("idea");
 
+  const submitting = useRef(false); // Enter + click (or two quick Enters) → one create
   const create = async () => {
-    if (!title.trim()) {
+    if (submitting.current || !title.trim()) {
       return;
     }
-    await save((s) => {
+    submitting.current = true;
+    const ok = await save((s) => {
       s.projects.push({
         id: uid("proj"),
         title: title.trim(),
@@ -119,7 +121,10 @@ function NewProjectModal({ ctx, onClose }) {
         position: s.projects.length,
       });
     });
-    onClose();
+    submitting.current = false;
+    if (ok !== false) {
+      onClose(); // a failed save keeps the modal (and the input) around for retry
+    }
   };
 
   return (
@@ -143,6 +148,7 @@ function NewProjectModal({ ctx, onClose }) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Build a tiny RTOS scheduler"
+          onKeyDown={(e) => e.key === "Enter" && create()}
         />
       </Field>
       <Field label="What is it?" hint="Optional one-liner — why it's meaningful to you.">
