@@ -25,6 +25,7 @@ import { insights } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
+import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
 
 // a valid calendar day string, else server-local today — so a malformed ?day= can't
 // reach the date math in momentum()/planner and 500 the request
@@ -185,7 +186,9 @@ app.get("/api/plan", async (req, res, next) => {
   }
 });
 
-// one round-trip for the whole Today screen: queue + momentum + plan + nudges
+// one round-trip for the whole Today screen: queue + momentum + plan + nudges.
+// ?budget= sizes the plan like /api/plan does (the client's "one more" boost —
+// without it, the next refresh would rebuild the plan from settings and shrink it)
 app.get("/api/dashboard", (req, res, next) => {
   try {
     const state = getFullState(); // momentum/plan/insights/review read history
@@ -193,7 +196,7 @@ app.get("/api/dashboard", (req, res, next) => {
     res.json({
       today: buildToday(state, { today: day }),
       momentum: momentum(state, { today: day }),
-      plan: planDay(state, planOpts(state, day)),
+      plan: planDay(state, planOpts(state, day, resolveBudget(req.query.budget))),
       insights: insights(state, { today: day }),
       review: weeklyReview(state, { today: day }),
     });
@@ -269,6 +272,72 @@ app.post("/api/import", (req, res) => {
   } catch (e) {
     console.warn("POST /api/import failed:", e.message);
     res.status(400).json({ error: "import failed — file may be malformed" });
+  }
+});
+
+// Markdown export/sync — the human/Claude-friendly sibling of the JSON export.
+// GET /api/export.md renders the model (instruction header + snapshot) as Markdown;
+// Claude's reply goes to /api/sync/preview (dry-run) or /api/sync/apply. Sync is
+// create + update only — it never deletes, archives, or writes completion history.
+app.get("/api/export.md", (_req, res) => {
+  const today = dayKey(); // server-local, the same "today" the rest of the API uses
+  res.setHeader("Content-Disposition", `attachment; filename="michi-claude-${today}.md"`);
+  res.type("text/markdown").send(renderExport(getFullState(), today));
+});
+
+// shared guard for the sync endpoints: a parsed doc, or null after a 400 was sent
+function parseSyncBody(req, res) {
+  const md = req.body?.markdown;
+  if (typeof md !== "string" || !md.trim()) {
+    res.status(400).json({ error: "markdown is required" });
+    return null;
+  }
+  const parsed = parseSync(md);
+  if (!hasParsedItems(parsed)) {
+    // the parse warnings are the only clue to WHY nothing was found — ship them
+    res.status(400).json({
+      error: "no michi items found in that markdown",
+      warnings: parsed.warnings,
+    });
+    return null;
+  }
+  return parsed;
+}
+
+app.post("/api/sync/preview", (req, res) => {
+  const parsed = parseSyncBody(req, res);
+  if (!parsed) {
+    return;
+  }
+  try {
+    const plan = planSync(parsed, getFullState());
+    res.json({
+      creates: Object.fromEntries(
+        Object.entries(plan.creates).map(([kind, items]) => [
+          kind,
+          { count: items.length, items: items.map((i) => ({ id: i.id, title: i.title })) },
+        ]),
+      ),
+      updates: plan.updates,
+      warnings: [...parsed.warnings, ...plan.warnings],
+    });
+  } catch (e) {
+    console.warn("POST /api/sync/preview failed:", e.message);
+    res.status(400).json({ error: "could not plan that sync" });
+  }
+});
+
+app.post("/api/sync/apply", (req, res) => {
+  const parsed = parseSyncBody(req, res);
+  if (!parsed) {
+    return;
+  }
+  try {
+    const { state, applied, warnings } = applySync(parsed);
+    res.json({ state, applied, warnings: [...parsed.warnings, ...warnings] });
+  } catch (e) {
+    console.warn("POST /api/sync/apply failed:", e.message);
+    res.status(400).json({ error: e.message || "sync failed" });
   }
 });
 

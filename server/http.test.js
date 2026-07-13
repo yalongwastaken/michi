@@ -215,6 +215,55 @@ test("GET /api/digest?format=text renders the plain-text morning summary", async
   assert.equal(typeof json.text, "string");
 });
 
+test("GET /api/export.md serves the Claude-ready markdown snapshot", async () => {
+  const res = await api("/api/export.md");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") || "", /text\/markdown/);
+  assert.match(
+    res.headers.get("content-disposition") || "",
+    /attachment; filename="michi-claude-\d{4}-\d{2}-\d{2}\.md"/,
+  );
+  const text = await res.text();
+  assert.match(text, /# michi snapshot/);
+  assert.match(text, /## Roadmap: Embedded \{#R\}/); // anchors ride along
+});
+
+test("POST /api/sync/preview dry-runs the plan without writing", async () => {
+  const before = await (await api("/api/state")).json();
+  const res = await send("POST", "/api/sync/preview", {
+    markdown: "## Tasks\n- [ ] preview-only task ~15m\n",
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.creates.tasks.count, 1);
+  assert.equal(body.creates.tasks.items[0].title, "preview-only task");
+  assert.deepEqual(body.updates, []);
+  const after = await (await api("/api/state")).json();
+  assert.equal(after.rev, before.rev); // preview never writes
+  assert.ok(!after.tasks.some((t) => t.title === "preview-only task"));
+});
+
+test("POST /api/sync/apply creates + updates; bad bodies get a 400", async () => {
+  const res = await send("POST", "/api/sync/apply", {
+    markdown: "## Tasks\n- [x] round-trip me {#t-rt}\n- [ ] synced task due:2026-07-14 ~20m\n",
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.applied.createdCounts.tasks, 1);
+  assert.equal(body.applied.updatedCounts.tasks, 1);
+  assert.equal(body.state.tasks.find((t) => t.id === "t-rt").status, "done");
+  assert.ok(body.state.tasks.some((t) => t.title === "synced task" && t.due === "2026-07-14"));
+  // missing/empty markdown and a paste with nothing syncable both 400
+  const empty = await send("POST", "/api/sync/apply", { markdown: "   " });
+  assert.equal(empty.status, 400);
+  const prose = await send("POST", "/api/sync/preview", { markdown: "just prose, no items" });
+  assert.equal(prose.status, 400);
+  // the 400 carries the parse warnings — the only clue to why nothing was found
+  const proseBody = await prose.json();
+  assert.ok(Array.isArray(proseBody.warnings));
+  assert.ok(proseBody.warnings.some((w) => /skipped line/.test(w)));
+});
+
 test("unknown API paths get a clean JSON 404, not the SPA shell", async () => {
   const res = await api("/api/nope");
   assert.equal(res.status, 404);
