@@ -12,7 +12,9 @@ All notable changes to Michi are documented here. Versions follow
   "Plan with Claude". A preview shows exactly what would be created and updated
   (per-field, from → to) before an atomic apply. Sync can create and update roadmaps,
   milestones, steps, projects, and tasks — it can never delete. Items keep stable
-  `{#id}` anchors so Claude can edit in place; new items get fresh ids.
+  `{#id}` anchors so Claude can edit in place; new items get fresh ids. Syncs are
+  idempotent: anchor-less items match existing ones by title (steps within their
+  milestone), so pasting the same reply twice can't create duplicates.
 - **A game layer.** Every completion earns distance on your path (task +10 m,
   step +25 m); levels are named waypoints (Trailhead → Summit, then round II). The
   Today header gains a daily-goal progress ring and a streak chip; Momentum gains a
@@ -63,7 +65,7 @@ All notable changes to Michi are documented here. Versions follow
   attribute-like text inside titles, duplicate anchors, anchor-less headings matched
   by title, hostile input), sync HTTP integration cases, XP/waypoint/badge unit
   tests, activity-cache correctness tests (toggle on/off, import/reset
-  invalidation). Server suite now 119 tests; client 33.
+  invalidation). Server suite now 124 tests; client 33.
 - The whole release was adversarially re-audited before shipping; the two worst
   findings (Markdown round-trips corrupting titles that contain attribute-like
   text; a failed completion toggle leaving a stuck optimistic checkmark) were

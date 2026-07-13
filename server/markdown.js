@@ -589,10 +589,13 @@ export function planSync(parsed, state) {
     warn(`unknown id "${docId}" on ${kind} "${title}" — treated as new`);
     remap.set(docId, freshId);
   };
-  // anchor-less headings are usually Claude giving context, not creating — try an
-  // exact (case-insensitive) title match first, so `## Roadmap: Embedded` without
-  // an anchor references the real roadmap instead of spawning a duplicate that
-  // anchored children would then be re-parented under
+  // anchor-less lines are usually Claude giving context — or a careless re-paste of
+  // an earlier reply — not creating. Try an exact (case-insensitive) title match
+  // first, so `## Roadmap: Embedded` without an anchor references the real roadmap
+  // instead of spawning a duplicate that anchored children would then be re-parented
+  // under. The same applies to list items: steps match among the steps of their
+  // resolved milestone, tasks across all tasks — so re-applying the same reply
+  // updates the items it created the first time instead of duplicating them.
   const matchByTitle = (kind, list, title, inGroup = () => true) => {
     const t = title.toLowerCase();
     const hits = (list || []).filter(
@@ -606,6 +609,19 @@ export function planSync(parsed, state) {
       warn(`${hits.length} ${kind}s titled "${title}" — created a new one`);
     }
     return null;
+  };
+  // …and when an anchor-less line matched nothing in the state but an EARLIER line
+  // of this same doc already created the item, merge into that pending create row
+  // (later fields overlay, mirroring the duplicate-anchor merge) instead of
+  // creating N copies of one title
+  const mergeIntoCreate = (kind, list, title, inGroup, overlay) => {
+    const t = title.toLowerCase();
+    const dup = list.find((x) => inGroup(x) && String(x.title).trim().toLowerCase() === t);
+    if (dup) {
+      warn(`duplicate ${kind} "${title}" — lines merged`);
+      overlay(dup);
+    }
+    return dup;
   };
 
   const roadmapIds = [];
@@ -667,7 +683,9 @@ export function planSync(parsed, state) {
 
   for (const st of parsed.steps || []) {
     const parentId = milestoneIds[st.milestoneIndex];
-    const existing = st.id ? byId.step.get(st.id) : null;
+    const existing = st.id
+      ? byId.step.get(st.id)
+      : matchByTitle("step", state.steps, st.title, (x) => x.milestoneId === parentId);
     if (existing) {
       const fields = { title: st.title, resourceUrl: st.resourceUrl };
       if (parentId && existing.milestoneId !== parentId) {
@@ -675,6 +693,24 @@ export function planSync(parsed, state) {
         fields.milestoneId = parentId;
       }
       recordUpdate("step", existing, st.title, fields, st.status);
+      continue;
+    }
+    if (
+      !st.id &&
+      mergeIntoCreate(
+        "step",
+        creates.steps,
+        st.title,
+        (x) => x.milestoneId === parentId,
+        (row) => {
+          row.status = st.status;
+          row.doneAt = st.status === "done" ? now : null;
+          if (st.resourceUrl !== undefined) {
+            row.resourceUrl = st.resourceUrl;
+          }
+        },
+      )
+    ) {
       continue;
     }
     const id = uid("step");
@@ -745,7 +781,7 @@ export function planSync(parsed, state) {
   for (const t of parsed.tasks || []) {
     const stepId = resolveRef(t.stepRef, "step", t.title);
     const projectId = resolveRef(t.projectRef, "project", t.title);
-    const existing = t.id ? byId.task.get(t.id) : null;
+    const existing = t.id ? byId.task.get(t.id) : matchByTitle("task", state.tasks, t.title);
     if (existing) {
       recordUpdate(
         "task",
@@ -761,6 +797,36 @@ export function planSync(parsed, state) {
         },
         t.status,
       );
+      continue;
+    }
+    if (
+      !t.id &&
+      mergeIntoCreate(
+        "task",
+        creates.tasks,
+        t.title,
+        () => true,
+        (row) => {
+          row.status = t.status;
+          row.doneAt = t.status === "done" ? now : null;
+          if (t.due !== undefined) {
+            row.due = t.due;
+          }
+          if (t.estMin !== undefined) {
+            row.estMin = t.estMin;
+          }
+          if (t.recurrence !== undefined) {
+            row.recurrence = t.recurrence;
+          }
+          if (stepId !== undefined) {
+            row.stepId = stepId;
+          }
+          if (projectId !== undefined) {
+            row.projectId = projectId;
+          }
+        },
+      )
+    ) {
       continue;
     }
     const id = uid("task");
