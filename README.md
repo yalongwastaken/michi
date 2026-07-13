@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.7.0** · self-hosted · single-user · no cloud · AI is optional & fully local
+**v0.8.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -158,25 +158,39 @@ Prefer cron? This works too:
 make test         # server engine/db tests + client lib tests
 ```
 
+## Plan with Claude
+
+Michi's state round-trips through Markdown so an AI assistant can help you plan
+without any integration or API keys. In **Settings → Plan with Claude**: copy the
+export (a snapshot of your roadmaps/projects/tasks with an embedded prompt), paste it
+into Claude with whatever you want ("plan my next two weeks", "turn this book into a
+roadmap"), then paste Claude's reply back. A preview shows exactly what would be
+created and updated — per field, from → to — before anything is applied, atomically.
+Items carry stable `{#id}` anchors so Claude edits in place; a sync can create and
+update, but never delete.
+
 ## API
 
-| Method | Path             | Purpose                                                        |
-| ------ | ---------------- | -------------------------------------------------------------- |
-| GET    | `/api/health`    | liveness check                                                 |
-| GET    | `/api/state`     | the unified model (sans completion history — see `/api/export`) |
-| PUT    | `/api/state`     | replace the full model (the client's "save")                   |
-| POST   | `/api/tasks`     | append a single task (lean write)                              |
-| POST   | `/api/complete`  | toggle a task/step done (`{kind,id,done}`)                     |
-| GET    | `/api/today`     | the focused daily queue (`?day=`, `?limit=`)                   |
-| GET    | `/api/plan`      | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)   |
-| POST   | `/api/plan/skip` | push a plan item to tomorrow (`{kind,id,day,on}`)              |
-| GET    | `/api/momentum`  | streak, heatmap, roadmap/project progress (`?day=`)            |
-| GET    | `/api/dashboard` | today + momentum + plan + insights + weekly review, one round-trip (`?day=`) |
-| GET    | `/api/digest`    | plain-text (`?format=text`) or JSON summary of the day         |
-| GET    | `/api/config`    | client capability probe (whether the local model is on)        |
-| GET    | `/api/export`    | download the full model incl. completion history as JSON      |
-| POST   | `/api/import`    | replace the model (and history) from an exported JSON         |
-| POST   | `/api/reset`     | wipe everything and start fresh                                |
+| Method | Path                | Purpose                                                                                  |
+| ------ | ------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/api/health`       | liveness check                                                                           |
+| GET    | `/api/state`        | the unified model (sans completion history — see `/api/export`)                          |
+| PUT    | `/api/state`        | replace the full model (the client's "save")                                             |
+| POST   | `/api/tasks`        | append a single task (lean write)                                                        |
+| POST   | `/api/complete`     | toggle a task/step done (`{kind,id,done}`)                                               |
+| GET    | `/api/today`        | the focused daily queue (`?day=`, `?limit=`)                                             |
+| GET    | `/api/plan`         | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)                             |
+| POST   | `/api/plan/skip`    | push a plan item to tomorrow (`{kind,id,day,on}`)                                        |
+| GET    | `/api/momentum`     | streak, heatmap, roadmap/project progress (`?day=`)                                      |
+| GET    | `/api/dashboard`    | today + momentum + plan + insights + weekly review, one round-trip (`?day=`, `?budget=`) |
+| GET    | `/api/digest`       | plain-text (`?format=text`) or JSON summary of the day                                   |
+| GET    | `/api/config`       | client capability probe (whether the local model is on)                                  |
+| GET    | `/api/export`       | download the full model incl. completion history as JSON                                 |
+| POST   | `/api/import`       | replace the model (and history) from an exported JSON                                    |
+| GET    | `/api/export.md`    | Markdown snapshot with an embedded prompt — hand it to Claude to plan                    |
+| POST   | `/api/sync/preview` | dry-run a pasted Markdown plan (`{markdown}`) — what would change                        |
+| POST   | `/api/sync/apply`   | apply a Markdown plan atomically (create + update only, never delete)                    |
+| POST   | `/api/reset`        | wipe everything and start fresh                                                          |
 
 ## License
 

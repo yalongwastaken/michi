@@ -3,6 +3,72 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [0.8.0] — 2026-07-13
+
+### Added
+
+- **Plan with Claude.** Export your whole state as Markdown with an embedded prompt
+  (`GET /api/export.md`), hand it to Claude, and paste the reply back into Settings →
+  "Plan with Claude". A preview shows exactly what would be created and updated
+  (per-field, from → to) before an atomic apply. Sync can create and update roadmaps,
+  milestones, steps, projects, and tasks — it can never delete. Items keep stable
+  `{#id}` anchors so Claude can edit in place; new items get fresh ids.
+- **A game layer.** Every completion earns distance on your path (task +10 m,
+  step +25 m); levels are named waypoints (Trailhead → Summit, then round II). The
+  Today header gains a daily-goal progress ring and a streak chip; Momentum gains a
+  waypoint card and a streak-badge row (3–365 days, earned by longest streak ever).
+  Confetti + a toast celebrate a met daily goal, a new waypoint, and new streak
+  badges — each at most once, and never under reduced motion.
+- **A mascot.** A small geometric shiba keeps you company: it celebrates when the
+  goal is met, droops when the streak is at risk, and sits in the empty plan. The
+  onboarding now explains the name: 道 michi — the path.
+- **Error boundary.** A crash now shows a friendly recovery card with a reload
+  button instead of a white screen.
+
+### Changed
+
+- Faster dashboards on long histories: streaks/heatmap/XP now read an incrementally
+  maintained day-count cache instead of re-walking the whole completions log on
+  every checkbox tap.
+- The service worker is versioned (`michi-shell-v2`) and smarter: navigations are
+  network-first (a 502 during a restart can no longer be cached as the permanent
+  offline shell), hashed assets are cache-first, manifest/icons revalidate in the
+  background, and old caches are deleted on activate.
+- The app refetches when the PWA regains focus, visibility, or connectivity, and
+  rolls over to the new day on its own overnight.
+- Copy pass: nudges, digest, onboarding, and empty states now speak with one warm
+  path-flavored voice; raw network failures read "can't reach the server" instead
+  of "Failed to fetch".
+
+### Fixed (from a whole-repo audit)
+
+- Deleting a roadmap, step, project, or task now asks for a second tap to confirm.
+- A 409 write conflict re-bases your edit on the fresh state and retries once
+  instead of discarding it.
+- A save that succeeds but whose follow-up refresh fails no longer reports "save
+  failed" (which could cause duplicate retries) — it closes the modal and shows a
+  soft banner.
+- Double-Enter can no longer create duplicate tasks/roadmaps/projects; quick-add
+  keeps your text when the add fails; the new-project modal no longer closes (and
+  loses input) on a failed save and submits on Enter.
+- Completion checkboxes stay tappable while other writes are queued.
+- "One more" now sticks: the boosted budget survives later refreshes until the day
+  changes.
+- Settings: importing the same file twice works, import/reset errors use a proper
+  banner instead of `alert()`, and first-save errors are visible during onboarding.
+
+### Tests
+
+- New: Markdown export/parse/plan/apply suite (23, including adversarial cases:
+  attribute-like text inside titles, duplicate anchors, anchor-less headings matched
+  by title, hostile input), sync HTTP integration cases, XP/waypoint/badge unit
+  tests, activity-cache correctness tests (toggle on/off, import/reset
+  invalidation). Server suite now 119 tests; client 33.
+- The whole release was adversarially re-audited before shipping; the two worst
+  findings (Markdown round-trips corrupting titles that contain attribute-like
+  text; a failed completion toggle leaving a stuck optimistic checkmark) were
+  fixed and regression-tested.
+
 ## [0.7.0] — 2026-06-23
 
 ### Added
