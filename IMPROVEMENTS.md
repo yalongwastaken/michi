@@ -9,6 +9,7 @@ All high/medium findings were verified against the actual code.
 ## Critical (fix first)
 
 ### S1. Unvalidated `settings` can wedge the server for hours — HIGH
+
 `validateState()` (db.js:187–244) never checks `settings` or `profile`. A `PUT /api/state`
 or import with `settings.streakFreezes: "Infinity"` (or any huge number) reaches
 `computeStreak()` (engine.js:223–235), which walks backwards **one day at a time** while
@@ -19,7 +20,8 @@ just wedged).
 `Math.min(Number(settings.streakFreezes) || 0, 365)` at engine.js:296.
 
 ### S2. Import can permanently 500 momentum/dashboard — HIGH
-`replaceCompletions()` (db.js:564) only checks field *presence*, not validity — no
+
+`replaceCompletions()` (db.js:564) only checks field _presence_, not validity — no
 `isValidDay()`, no kind whitelist. One imported completion with `day: "not-a-date"`
 makes `prevDay()` throw `RangeError` inside `longestStreak()` on **every** momentum/
 dashboard call until the DB is hand-edited. The date-validation audit covered tasks and
@@ -27,6 +29,7 @@ roadmaps but missed the completions log — exactly the data import rebuilds.
 **Fix:** `isValidDay(c.day)` + kind whitelist in the import loop.
 
 ### S3. Backups are silently broken (WAL) — HIGH
+
 `Makefile:68` does `cp server/data/michi.db backups/...`. The DB runs in WAL mode
 (db.js:15), so recent commits live in `michi.db-wal` until checkpoint — a plain `cp`
 **misses everything since the last checkpoint** and can produce a torn copy. This is the
@@ -36,6 +39,7 @@ only backup mechanism, and it fails silently.
 `make backup`, and consider copying off-disk.
 
 ### C1. Failed completion never rolls back + unhandled rejection — HIGH
+
 App.jsx:182–186: when `POST /api/complete` fails, the catch calls `refreshDerived()` to
 roll back the optimistic checkmark — but `refreshDerived` has no try/catch and fails for
 the same reason (offline / flaky Tailscale). The exception escapes, the rollback never
@@ -44,6 +48,7 @@ reload.
 **Fix:** wrap the rollback refresh in its own try/catch; show a clear "not saved" state.
 
 ### C2. The app goes stale and never recovers — HIGH
+
 No `visibilitychange` / `focus` / `online` / interval handler exists anywhere in
 client/src (only SW registration in main.jsx). As an installed PWA kept alive on a phone
 for days, Michi shows **yesterday's** plan, greeting, and streak the next morning — and
@@ -53,6 +58,7 @@ refetches `?day=<yesterday>`. It also never picks up edits from another device.
 inside `refreshDerived` at call time.
 
 ### C3. One mis-tap permanently deletes a roadmap — HIGH
+
 The roadmap Delete icon (Roadmaps.jsx:374) deletes the roadmap and all milestones/steps
 via full-state PUT with **no confirm and no undo**, sitting adjacent to Archive/Edit in
 a row of 40px phone tap targets. Same for step, project, and task deletes. The server
@@ -64,6 +70,7 @@ confirm (Settings.jsx:156) — deletes deserve the same, or an undo toast.
 ## Medium
 
 ### Server
+
 - **S4. Import half-applies on failure.** index.js:254–257 runs `putState` and
   `replaceCompletions` as two separate transactions. If the second throws, tables are
   already replaced, old completions survive, and the client is told the import failed.
@@ -76,18 +83,19 @@ confirm (Settings.jsx:156) — deletes deserve the same, or an undo toast.
   (db.js:369,415,528,548 all `return getState()`). Ticking one checkbox downloads the
   whole history; grows forever. Return a slim `{rev}` ack, or window completions in
   `getState` (momentum needs ~heatDays; export keeps the full log). The client-side twin:
-  `save()` also *uploads* the full log on every edit (see C6).
+  `save()` also _uploads_ the full log on every edit (see C6).
 - **S7. systemd unit runs as root** — no `User=` in deploy/michi.service. Add `User=`,
   and optionally `ProtectSystem=strict` + `ReadWritePaths=` for the data dir.
 - **S8. Duplication drift.** `lastActiveByRoadmap` copied in planner.js + insights.js;
   three hand-synced `stepLine`/`taskLine` variants; `dayKey`/`localDayKey` identical;
-  two `daysUntil` with *different* clamping. Extract shared `dates.js` + `project.js`.
+  two `daysUntil` with _different_ clamping. Extract shared `dates.js` + `project.js`.
 
 ### Client
+
 - **C4. 409 conflict throws away the user's edit.** App.jsx:161–165 reloads and shows an
   error; the mutator is never re-applied, and the server's 409 already includes fresh
   state that the client ignores. Since `save()` takes a mutator, rebase-and-retry-once
-  is cheap. With C2 unfixed, this is the *normal* path for two-device use.
+  is cheap. With C2 unfixed, this is the _normal_ path for two-device use.
 - **C5. `save()` reports failure after success.** App.jsx:152–165 wraps both the PUT and
   the follow-up refresh in one try — a refresh failure after a successful PUT shows
   "save failed", the modal stays open, retry creates a duplicate. Split the two.
@@ -108,11 +116,12 @@ confirm (Settings.jsx:156) — deletes deserve the same, or an undo toast.
   `value`; raw "Failed to fetch" shown to the user.
 
 ### PWA / service worker
+
 - **P1. A 502 gets cached as the app shell.** sw.js:33–36 `c.put("/index.html", res)`
-  with no `res.ok` check (the asset path *does* check). One error page during a server
+  with no `res.ok` check (the asset path _does_ check). One error page during a server
   restart becomes the permanent offline shell.
 - **P2. Nothing ever bumps `michi-shell-v1`** — old hashed assets accumulate forever,
-  and non-hashed files (manifest, icons) are cached cache-first *permanently*, so icon/
+  and non-hashed files (manifest, icons) are cached cache-first _permanently_, so icon/
   manifest changes never reach installed clients.
 - **P3. Deploy-then-offline blank screen** — new index.html cached, its new hashed
   assets not yet fetched → offline shell references assets that exist nowhere.
@@ -180,10 +189,11 @@ Grouped by how directly they serve "one place that tells you what to work on tod
 fully local, phone-first."
 
 ### Closes existing loops
+
 - **Undo/trash.** A `deleted_at` soft-delete (or a small tombstone table) enables the
   undo toast in C3 and a Settings "Trash" view. Pairs naturally with the full-state PUT
   model.
-- **Session logging.** You track *that* a step was done, not *how long*. An optional
+- **Session logging.** You track _that_ a step was done, not _how long_. An optional
   "log 25m" on completion (default from estMin, editable) upgrades Momentum from
   streak-counting to real effort data — better pacing math ("you average 40m/day, this
   finish-by date needs 55m/day") and honest weekly reviews.
@@ -194,6 +204,7 @@ fully local, phone-first."
   as a stored day-scoped setting the planner respects.
 
 ### Learning-coach depth
+
 - **Spaced review.** You already log completions per step. Resurface finished steps as
   lightweight "recall: what was X about?" items n days later (1/7/30). This is the
   single most learning-science-native feature Michi could add, it's pure engine work
@@ -209,6 +220,7 @@ fully local, phone-first."
   the project"), which matches the stated philosophy that learning sticks when you build.
 
 ### Momentum & self-knowledge
+
 - **Pace trend per roadmap.** You have targetDate math; show a small sparkline of
   %/week with "at this pace: done Sep 12" vs the finish-by date. Cheap, high-signal.
 - **Weekly review → local-model reflection.** The review data exists; with MICHI_LLM on,
@@ -218,6 +230,7 @@ fully local, phone-first."
   makes them a mechanic instead of a config value.
 
 ### Ops / trust (fits the self-hosted identity)
+
 - **Backup status surfaced in Settings** — last backup age, one-tap "back up now"
   (calls a `POST /api/backup` doing `VACUUM INTO`). Turns S3's fix into a visible
   feature.
@@ -225,6 +238,7 @@ fully local, phone-first."
   very in keeping with the local-first, no-cloud personality.
 
 ### Suggested sequencing
+
 v0.8 = hardening (ranked plan items 1–5). v0.9 = session logging + budget override +
 evening digest. v1.0 = spaced review + notes + project↔roadmap links. That order keeps
 every release shippable and each feature builds on the previous one's data.
