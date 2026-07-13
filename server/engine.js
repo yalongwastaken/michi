@@ -328,6 +328,16 @@ export function streakMilestones(longest) {
   return STREAK_MILESTONES.map((days) => ({ days, earned: longest >= days }));
 }
 
+/**
+ * Bonus streak freezes earned by waypoint progression — one at waypoint 4,
+ * another at 8, capped at +2. Stateless on purpose: derived from the level every
+ * time, never stored, so it can't drift and needs no migration. The streak walk
+ * budgets settings.streakFreezes + this (see momentum).
+ */
+export function earnedFreezes(level) {
+  return Math.min(2, Math.floor(level / 4));
+}
+
 /** Per-roadmap progress: { id, title, done, total, pct }. */
 export function roadmapProgress(state) {
   const steps = state.steps || [];
@@ -372,7 +382,7 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
   const dailyGoal = Number.isFinite(rawGoal) && rawGoal >= 0 ? rawGoal : 1;
   // clamp: an Infinity/huge freeze count would make computeStreak walk back
   // day-by-day (nearly) forever and wedge the event loop
-  const freezes = Math.min(Math.max(Number(settings.streakFreezes) || 0, 0), 365);
+  const baseFreezes = Math.min(Math.max(Number(settings.streakFreezes) || 0, 0), 365);
 
   // the registered cache when db.js is loaded (the running server — any raw log in
   // `state` is ignored there), the pure raw-log walk otherwise (unit tests)
@@ -384,6 +394,12 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
     return rec ? rec.tasks + rec.steps : 0;
   };
   const todayCount = countOn(today);
+
+  // the streak's freeze budget = configured base + waypoint earn-back (xp first:
+  // the earned count derives from the level)
+  const xp = xpSummary(totals, byDay.get(today));
+  const earned = earnedFreezes(xp.level);
+  const freezes = baseFreezes + earned;
 
   const { current, atRisk, freezesUsed } = computeStreak(byDay, today, freezes);
   const longest = longestStreak(byDay);
@@ -401,13 +417,23 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
 
   return {
     day: today,
+    // streak.freezes stays the TOTAL budget — the client renders "X of Y left"
+    // from freezes/freezesUsed and must keep working; the block below breaks the
+    // total down for UIs that want to celebrate the earn-back
     streak: { current, longest, atRisk, freezesUsed, freezes },
+    freezes: {
+      base: baseFreezes,
+      earned,
+      total: freezes,
+      used: freezesUsed,
+      left: freezes - freezesUsed,
+    },
     todayCount,
     dailyGoal,
     metGoal: todayCount >= dailyGoal,
     daysActive: byDay.size,
     totalDone,
-    xp: xpSummary(totals, byDay.get(today)),
+    xp,
     milestones: streakMilestones(longest),
     roadmaps: roadmapProgress(state),
     projects: {

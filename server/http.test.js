@@ -264,6 +264,110 @@ test("POST /api/sync/apply creates + updates; bad bodies get a 400", async () =>
   assert.ok(proseBody.warnings.some((w) => /skipped line/.test(w)));
 });
 
+test("trash: a delete-by-absence is listed, restorable, and purgeable over HTTP", async () => {
+  // a known tree to delete (this PUT trashes the earlier tests' leftovers — flushed below)
+  let cur = await (await api("/api/state")).json();
+  const setup = await send("PUT", "/api/state", {
+    rev: cur.rev,
+    roadmaps: [{ id: "TR", title: "Trash Track" }],
+    milestones: [{ id: "TM", roadmapId: "TR", title: "Only" }],
+    steps: [{ id: "TS", milestoneId: "TM", title: "Step one" }],
+    tasks: [{ id: "tt", title: "trash me" }],
+  });
+  assert.equal(setup.status, 200);
+  await api("/api/trash", { method: "DELETE" });
+
+  // everything vanishes from the next PUT → one roadmap row (whole subtree) + one task row
+  cur = await (await api("/api/state")).json();
+  const wipe = await send("PUT", "/api/state", { rev: cur.rev, tasks: [] });
+  assert.equal(wipe.status, 200);
+  const items = (await (await api("/api/trash")).json()).items;
+  assert.equal(items.length, 2);
+  const rm = items.find((i) => i.kind === "roadmap");
+  assert.equal(rm.title, "Trash Track");
+  assert.equal(rm.counts, "1 milestone · 1 step"); // derived from the payload
+  const task = items.find((i) => i.kind === "task");
+  assert.equal(task.counts, null);
+
+  // restore the roadmap: fresh state + what came back; the row leaves the trash
+  const restore = await send("POST", "/api/trash/restore", { id: rm.id });
+  assert.equal(restore.status, 200);
+  const body = await restore.json();
+  assert.deepEqual(body.restored, {
+    id: rm.id,
+    kind: "roadmap",
+    title: "Trash Track",
+    remapped: false,
+  });
+  assert.ok(body.state.roadmaps.some((r) => r.id === "TR"));
+  assert.ok(body.state.steps.some((s) => s.id === "TS"));
+  assert.equal((await (await api("/api/trash")).json()).items.length, 1);
+
+  // restore is one-shot; bad bodies 400; unknown ids 404
+  assert.equal((await send("POST", "/api/trash/restore", { id: rm.id })).status, 404);
+  assert.equal((await send("POST", "/api/trash/restore", {})).status, 400);
+
+  // purge one (idempotence → 404 the second time), then purge all
+  assert.equal((await api(`/api/trash/${task.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await api(`/api/trash/${task.id}`, { method: "DELETE" })).status, 404);
+  const flushed = await (await api("/api/trash", { method: "DELETE" })).json();
+  assert.equal(flushed.ok, true);
+  assert.deepEqual((await (await api("/api/trash")).json()).items, []);
+});
+
+test("trash never rides along with state or export; import never trashes", async () => {
+  const state = await (await api("/api/state")).json();
+  assert.ok(!("trash" in state));
+  const exported = await (await api("/api/export")).json();
+  assert.ok(!("trash" in exported));
+  // import replaces the whole model — deliberately without trashing the old one
+  const imp = await send("POST", "/api/import", { tasks: [{ id: "imp-t", title: "imported" }] });
+  assert.equal(imp.status, 200);
+  assert.deepEqual((await (await api("/api/trash")).json()).items, []);
+});
+
+test("project ↔ roadmap link round-trips; a dangling ref is rejected like task links", async () => {
+  let cur = await (await api("/api/state")).json();
+  const ok = await send("PUT", "/api/state", {
+    rev: cur.rev,
+    roadmaps: [{ id: "LR", title: "Linked" }],
+    projects: [{ id: "LP", title: "Build it", roadmapId: "LR" }],
+  });
+  assert.equal(ok.status, 200);
+  const saved = await ok.json();
+  assert.equal(saved.projects.find((p) => p.id === "LP").roadmapId, "LR");
+  // a ref into nowhere gets the same 400 a dangling task.stepId gets
+  const bad = await send("PUT", "/api/state", {
+    projects: [{ id: "LP2", title: "Nope", roadmapId: "ghost" }],
+  });
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /missing roadmap "ghost"/);
+});
+
+test("sync carries notes blockquotes end-to-end", async () => {
+  const res = await send("POST", "/api/sync/apply", {
+    markdown: "## Tasks\n- [ ] noted task\n> remember the charger\n> and the cable\n",
+  });
+  assert.equal(res.status, 200);
+  const { state } = await res.json();
+  const t = state.tasks.find((x) => x.title === "noted task");
+  assert.equal(t.notes, "remember the charger\nand the cable");
+  // …and the export renders them back as blockquote lines
+  const text = await (await api("/api/export.md")).text();
+  assert.match(text, /- \[ \] noted task \{#.+\}\n {2}> remember the charger\n {2}> and the cable/);
+});
+
+test("GET /api/momentum ships the freeze budget breakdown", async () => {
+  const m = await (await api("/api/momentum")).json();
+  const f = m.freezes;
+  for (const k of ["base", "earned", "total", "used", "left"]) {
+    assert.equal(typeof f[k], "number", k);
+  }
+  assert.equal(f.total, f.base + f.earned);
+  assert.equal(f.left, f.total - f.used);
+  assert.equal(m.streak.freezes, f.total); // the field the client renders today
+});
+
 test("unknown API paths get a clean JSON 404, not the SPA shell", async () => {
   const res = await api("/api/nope");
   assert.equal(res.status, 404);

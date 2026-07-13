@@ -7,15 +7,18 @@
 // Grammar (one item per line). On a line WITH an `{#id}` anchor the title is
 // everything before the anchor and attribute tokens are read only after it; on a
 // line WITHOUT one, tokens are scanned from the right end — see the parse section.
+// A `> ` blockquote line directly under a step/task attaches to it as notes.
 //   ## Roadmap: <title> {#id}
 //   archived · target: YYYY-MM-DD · 40% done        ← meta, only fields with values
 //   ### Milestone: <title> {#id}
 //   - [x] <step title> {#id} ~30m https://resource
+//     > <notes, one `> ` line per notes line>
 //   ## Project: <title> {#id}
-//   status: idea|active|shipped · repo: <url>
+//   status: idea|active|shipped · repo: <url> · roadmap:#<id>
 //   <summary line, when present>
 //   ## Tasks
 //   - [ ] <title> {#id} due:YYYY-MM-DD ~30m step:#<id> project:#<id> every:daily
+//     > <notes, same shape as steps>
 import { getFullState, validateState, importAll } from "./db.js";
 
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
@@ -52,6 +55,18 @@ function cleanTitle(t) {
 }
 
 const anchor = (id) => `{#${id}}`;
+
+// notes render as a blockquote right under their item, one `> ` line per notes
+// line, indented so the quote reads as part of the list item (an empty notes
+// line becomes a bare `>` — no trailing whitespace to get trimmed in transit)
+function pushNotes(L, notes) {
+  if (!notes) {
+    return;
+  }
+  for (const line of String(notes).split("\n")) {
+    L.push(line ? `  > ${line}` : "  >");
+  }
+}
 
 // cap the warning list so a 2000-line paste of the wrong file doesn't echo 2000
 // warnings back — after the cap, just count
@@ -105,9 +120,12 @@ export function renderExport(state, today) {
     "- Statuses: `[ ]` = todo, `[~]` = doing, `[x]` = done.",
     "- Dates: `due:YYYY-MM-DD`. Estimates: `~30m` (minutes, a positive integer).",
     "- Task links: `step:#<id>` / `project:#<id>`. Recurrence: `every:daily`,",
-    "  `every:weekdays` or `every:weekly`.",
+    "  `every:weekdays` or `every:weekly`. Project → roadmap link: `roadmap:#<id>`",
+    "  on the project's meta line.",
     "- Put attribute tokens at the END of the line — after the `{#id}` anchor when",
     "  there is one, after the title otherwise.",
+    "- Notes: attach a `> note` line directly under a step or task to annotate it",
+    "  (several `> ` lines in a row make a multi-line note).",
     "- Deletions are not possible via sync — never remove or archive anything.",
     "",
     "---",
@@ -155,6 +173,7 @@ export function renderExport(state, today) {
             parts.push(st.resourceUrl);
           }
           L.push(parts.join(" "));
+          pushNotes(L, st.notes);
         }
       }
     }
@@ -169,6 +188,9 @@ export function renderExport(state, today) {
     }
     if (p.repoUrl) {
       meta.push(`repo: ${p.repoUrl}`);
+    }
+    if (p.roadmapId) {
+      meta.push(`roadmap:#${p.roadmapId}`);
     }
     if (meta.length > 0) {
       L.push(meta.join(" · "));
@@ -199,6 +221,7 @@ export function renderExport(state, today) {
       parts.push(`every:${t.recurrence}`);
     }
     L.push(parts.join(" "));
+    pushNotes(L, t.notes);
   }
   L.push("");
 
@@ -340,14 +363,29 @@ export function parseSync(markdown) {
     lines = lines.slice(snap + 1);
   }
 
-  // parser context: which heading we're under decides where list items attach
-  const cur = { section: null, roadmap: null, milestone: null, project: null };
+  // parser context: which heading we're under decides where list items attach;
+  // `note` is the step/task the NEXT blockquote line would annotate
+  const cur = { section: null, roadmap: null, milestone: null, project: null, note: null };
 
   for (const raw of lines) {
     const line = raw.trim();
     if (!line || /^-{3,}$/.test(line) || /^#\s/.test(line)) {
+      cur.note = null; // the list broke off — a later blockquote is an orphan
       continue; // blanks, ---, and h1s carry no data
     }
+
+    // `> ` lines directly under a step/task attach to it as notes (consecutive
+    // quote lines join with \n); a blockquote anywhere else is just skipped
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      if (cur.note) {
+        cur.note.notes = cur.note.notes === undefined ? quote[1] : `${cur.note.notes}\n${quote[1]}`;
+      } else {
+        warn(`skipped line: "${line.slice(0, 60)}"`);
+      }
+      continue;
+    }
+    cur.note = null; // any other line ends the attachment window (list items reopen it)
 
     // headings carry a title and (optionally) an anchor, nothing else — any text
     // after the anchor is dropped with a warning, never parsed as meta
@@ -416,6 +454,7 @@ export function parseSync(markdown) {
           continue;
         }
         out.tasks.push(item);
+        cur.note = item; // a following blockquote annotates this task
       } else if (cur.milestone != null) {
         const item = { id, status, milestoneIndex: cur.milestone };
         fill(item, STEP_TOKENS);
@@ -424,6 +463,7 @@ export function parseSync(markdown) {
           continue;
         }
         out.steps.push(item);
+        cur.note = item; // a following blockquote annotates this step
       } else {
         warn(`list item outside a milestone or Tasks section skipped: "${line.slice(0, 60)}"`);
       }
@@ -451,7 +491,8 @@ export function parseSync(markdown) {
     }
     if (cur.section === "project") {
       const parts = line.split(/\s*·\s*/);
-      const known = (p) => /^status:\s*\S+$/.test(p) || /^repo:\s*\S+$/.test(p);
+      const known = (p) =>
+        /^status:\s*\S+$/.test(p) || /^repo:\s*\S+$/.test(p) || /^roadmap:#\S+$/.test(p);
       if (parts.every(known)) {
         for (const p of parts) {
           let t;
@@ -463,6 +504,8 @@ export function parseSync(markdown) {
             }
           } else if ((t = p.match(/^repo:\s*(\S+)$/))) {
             out.projects[cur.project].repoUrl = t[1];
+          } else if ((t = p.match(/^roadmap:#([^\s}]+)$/))) {
+            out.projects[cur.project].roadmapRef = t[1];
           }
         }
         continue;
@@ -687,7 +730,7 @@ export function planSync(parsed, state) {
       ? byId.step.get(st.id)
       : matchByTitle("step", state.steps, st.title, (x) => x.milestoneId === parentId);
     if (existing) {
-      const fields = { title: st.title, resourceUrl: st.resourceUrl };
+      const fields = { title: st.title, resourceUrl: st.resourceUrl, notes: st.notes };
       if (parentId && existing.milestoneId !== parentId) {
         warn(`step "${st.title}" moved under a different milestone`);
         fields.milestoneId = parentId;
@@ -708,6 +751,9 @@ export function planSync(parsed, state) {
           if (st.resourceUrl !== undefined) {
             row.resourceUrl = st.resourceUrl;
           }
+          if (st.notes !== undefined) {
+            row.notes = st.notes;
+          }
         },
       )
     ) {
@@ -724,17 +770,39 @@ export function planSync(parsed, state) {
       status: st.status,
       position: nextPosition(state.steps, creates.steps, (x) => x.milestoneId === parentId),
       resourceUrl: st.resourceUrl ?? null,
-      notes: null,
+      notes: st.notes ?? null,
       doneAt: st.status === "done" ? now : null,
     });
   }
 
+  // a dangling ref would fail validateState deep in apply — drop it with a warning
+  const resolveRef = (ref, kind, ownerKind, title) => {
+    if (ref === undefined) {
+      return undefined;
+    }
+    if (remap.has(ref)) {
+      return remap.get(ref);
+    }
+    if (byId[kind].has(ref)) {
+      return ref;
+    }
+    warn(`${ownerKind} "${title}" references unknown ${kind} "#${ref}" — link dropped`);
+    return undefined;
+  };
+
   for (const p of parsed.projects || []) {
+    const roadmapId = resolveRef(p.roadmapRef, "roadmap", "project", p.title);
     const existing = p.id
       ? byId.project.get(p.id)
       : matchByTitle("project", state.projects, p.title);
     if (existing) {
-      const fields = { title: p.title, status: p.status, repoUrl: p.repoUrl, summary: p.summary };
+      const fields = {
+        title: p.title,
+        status: p.status,
+        repoUrl: p.repoUrl,
+        summary: p.summary,
+        roadmapId,
+      };
       recordUpdate("project", existing, p.title, fields, undefined, (changes) => {
         if (changes.status) {
           // keep shippedAt in step with the status, the way the client does
@@ -760,27 +828,13 @@ export function planSync(parsed, state) {
       position: nextPosition(state.projects, creates.projects),
       createdAt: now,
       shippedAt: p.status === "shipped" ? now : null,
+      roadmapId: roadmapId ?? null,
     });
   }
 
-  // a dangling ref would fail validateState deep in apply — drop it with a warning
-  const resolveRef = (ref, kind, title) => {
-    if (ref === undefined) {
-      return undefined;
-    }
-    if (remap.has(ref)) {
-      return remap.get(ref);
-    }
-    if (byId[kind].has(ref)) {
-      return ref;
-    }
-    warn(`task "${title}" references unknown ${kind} "#${ref}" — link dropped`);
-    return undefined;
-  };
-
   for (const t of parsed.tasks || []) {
-    const stepId = resolveRef(t.stepRef, "step", t.title);
-    const projectId = resolveRef(t.projectRef, "project", t.title);
+    const stepId = resolveRef(t.stepRef, "step", "task", t.title);
+    const projectId = resolveRef(t.projectRef, "project", "task", t.title);
     const existing = t.id ? byId.task.get(t.id) : matchByTitle("task", state.tasks, t.title);
     if (existing) {
       recordUpdate(
@@ -794,6 +848,7 @@ export function planSync(parsed, state) {
           recurrence: t.recurrence,
           stepId,
           projectId,
+          notes: t.notes,
         },
         t.status,
       );
@@ -824,6 +879,9 @@ export function planSync(parsed, state) {
           if (projectId !== undefined) {
             row.projectId = projectId;
           }
+          if (t.notes !== undefined) {
+            row.notes = t.notes;
+          }
         },
       )
     ) {
@@ -843,7 +901,7 @@ export function planSync(parsed, state) {
       projectId: projectId ?? null,
       estMin: t.estMin ?? null,
       position: nextPosition(state.tasks, creates.tasks),
-      notes: null,
+      notes: t.notes ?? null,
       createdAt: now,
       doneAt: t.status === "done" ? now : null,
     });
