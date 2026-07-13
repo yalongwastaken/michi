@@ -10,6 +10,7 @@ import Momentum from "./views/Momentum.jsx";
 import Settings from "./views/Settings.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Celebration from "./views/Celebration.jsx";
+import UndoToast from "./views/UndoToast.jsx";
 import { Logo } from "./views/Logo.jsx";
 import { checkCelebrations, confettiBurst } from "./lib/celebrate.js";
 
@@ -77,6 +78,7 @@ export default function App({ onTheme }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [celebration, setCelebration] = useState(null);
+  const [undo, setUndo] = useState(null); // { trashId, title } — one toast at a time
 
   // today's key is state (not a per-render constant) so an installed PWA that sits
   // open overnight rolls over to the new day when it refetches
@@ -323,6 +325,49 @@ export default function App({ onTheme }) {
     [enqueue, applyState, refreshDerived],
   );
 
+  // after a delete-save resolves, peek at the trash: the server just snapshotted
+  // whatever disappeared from the PUT, so the newest row should be the thing the
+  // user deleted. Verify kind + title before offering undo — the toast's restore
+  // must never resurrect something else. Fail-soft: no toast, but the Settings
+  // trash list still has the row.
+  const notifyDeleted = useCallback(async (kind, title) => {
+    try {
+      const { items } = await api.trash();
+      const row = items?.[0];
+      if (!row || row.kind !== kind || row.title !== title) {
+        return;
+      }
+      setUndo({ trashId: row.id, title: row.title });
+    } catch {
+      /* offline or trash unavailable — deletion already succeeded, stay quiet */
+    }
+  }, []);
+
+  // the toast's Undo: restore the trash row, adopt the returned truth, refresh.
+  // Enqueued so it can't interleave with a save already in flight.
+  const undoDelete = useCallback(() => {
+    const u = undo;
+    setUndo(null);
+    if (!u) {
+      return Promise.resolve(false);
+    }
+    return enqueue(async () => {
+      try {
+        const res = await api.trashRestore(u.trashId);
+        applyState(res.state);
+      } catch (e) {
+        setError(e.message || "could not restore");
+        return false;
+      }
+      try {
+        await refreshDerived();
+      } catch {
+        setError("restored — couldn't refresh the plan");
+      }
+      return true;
+    });
+  }, [undo, enqueue, applyState, refreshDerived]);
+
   const addTask = useCallback(
     (task) =>
       enqueue(async () => {
@@ -389,6 +434,8 @@ export default function App({ onTheme }) {
     save,
     complete,
     addTask,
+    notifyDeleted,
+    setTab,
     refresh: load,
     busy,
   };
@@ -481,6 +528,7 @@ export default function App({ onTheme }) {
       {celebration ? (
         <Celebration event={celebration} onClose={() => setCelebration(null)} />
       ) : null}
+      {undo ? <UndoToast toast={undo} onUndo={undoDelete} onClose={() => setUndo(null)} /> : null}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // ui.jsx — small shared presentational primitives, so the views stay readable.
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 
 export function Card({ className = "", children, ...rest }) {
   return (
@@ -88,6 +88,30 @@ export function ConfirmButton({
     >
       {armed ? confirm : children}
     </button>
+  );
+}
+
+/** Compact up/down reorder control — shared by roadmap, step, and project rows. */
+export function MoveButtons({ canUp, canDown, onMove, busy }) {
+  return (
+    <span className="flex flex-col">
+      <button
+        disabled={busy || !canUp}
+        onClick={() => onMove(-1)}
+        aria-label="Move up"
+        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
+      >
+        <ChevronUp size={14} />
+      </button>
+      <button
+        disabled={busy || !canDown}
+        onClick={() => onMove(1)}
+        aria-label="Move down"
+        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
+      >
+        <ChevronDown size={14} />
+      </button>
+    </span>
   );
 }
 

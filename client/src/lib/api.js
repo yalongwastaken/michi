@@ -85,6 +85,12 @@ export const api = {
   },
   skipPlanItem: (kind, id, day, on = true) =>
     req("/api/plan/skip", { method: "POST", body: JSON.stringify({ kind, id, day, on }) }),
+  // trash: the safety net under deletes — list, restore one, purge one, empty all.
+  // restore returns { state, restored: {id, kind, title, remapped} }.
+  trash: () => req("/api/trash"),
+  trashRestore: (id) => req("/api/trash/restore", { method: "POST", body: JSON.stringify({ id }) }),
+  trashDelete: (id) => req(`/api/trash/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  trashEmpty: () => req("/api/trash", { method: "DELETE" }),
   reset: () => req("/api/reset", { method: "POST" }),
   importState: (state) => req("/api/import", { method: "POST", body: JSON.stringify(state) }),
   // the Claude round-trip: export markdown, preview a pasted reply, apply it

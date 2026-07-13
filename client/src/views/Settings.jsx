@@ -1,7 +1,25 @@
-import { useRef, useState } from "react";
-import { Download, Upload, Trash2, Sun, Moon, Monitor, Sparkles, Copy, Check } from "lucide-react";
-import { Modal, Button, Field, Input, Select } from "../ui.jsx";
+import { useEffect, useRef, useState } from "react";
+import {
+  Download,
+  Upload,
+  Trash2,
+  Sun,
+  Moon,
+  Monitor,
+  Sparkles,
+  Copy,
+  Check,
+  Map,
+  Hammer,
+  CheckCircle2,
+  Undo2,
+} from "lucide-react";
+import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
 import { api } from "../lib/api.js";
+import { timeAgo } from "../lib/format.js";
+
+// glyphs for what kind of thing is resting in the trash
+const TRASH_ICON = { roadmap: Map, project: Hammer, task: CheckCircle2 };
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -55,6 +73,63 @@ export default function Settings({ ctx, onClose }) {
   const settings = state.settings || {};
 
   const setSetting = (patch) => save((s) => Object.assign(s.settings, patch));
+
+  // the trash list — fetched once when Settings opens (this component only
+  // mounts on open, so the effect *is* the lazy load). null = still loading.
+  const [trash, setTrash] = useState(null);
+  const trashBusy = useRef(false); // one restore/purge at a time
+  useEffect(() => {
+    api
+      .trash()
+      .then((r) => setTrash(r.items || []))
+      .catch(() => setTrash([])); // unreachable → show the calm empty state
+  }, []);
+
+  const restoreItem = async (row) => {
+    if (trashBusy.current) {
+      return;
+    }
+    trashBusy.current = true;
+    try {
+      await api.trashRestore(row.id);
+      await refresh(); // adopt the restored state + rebuild the plan
+      setTrash((t) => (t || []).filter((x) => x.id !== row.id));
+      setError(null);
+    } catch (err) {
+      setError(err.message || "restore failed");
+    }
+    trashBusy.current = false;
+  };
+
+  const purgeItem = async (row) => {
+    if (trashBusy.current) {
+      return;
+    }
+    trashBusy.current = true;
+    try {
+      await api.trashDelete(row.id);
+      setTrash((t) => (t || []).filter((x) => x.id !== row.id));
+      setError(null);
+    } catch (err) {
+      setError(err.message || "delete failed");
+    }
+    trashBusy.current = false;
+  };
+
+  const emptyTrash = async () => {
+    if (trashBusy.current) {
+      return;
+    }
+    trashBusy.current = true;
+    try {
+      await api.trashEmpty();
+      setTrash([]);
+      setError(null);
+    } catch (err) {
+      setError(err.message || "could not empty the trash");
+    }
+    trashBusy.current = false;
+  };
 
   const exportData = () => {
     // hit the export endpoint directly so the browser handles the download
@@ -344,6 +419,65 @@ export default function Settings({ ctx, onClose }) {
             {synced}
           </p>
         ) : null}
+      </div>
+
+      <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+            <Trash2 size={15} className="text-slate-400" /> Trash
+          </p>
+          {trash?.length ? (
+            <ConfirmButton
+              label="Empty trash"
+              confirm="Really empty?"
+              onConfirm={emptyTrash}
+              className="h-8 px-2 text-xs"
+            >
+              Empty trash
+            </ConfirmButton>
+          ) : null}
+        </div>
+        {trash == null ? (
+          <p className="text-xs text-slate-400">Checking the trash…</p>
+        ) : trash.length === 0 ? (
+          <p className="text-xs text-slate-400">
+            Nothing in the trash — deletes rest here for 30 days.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {trash.map((row) => {
+              const Icon = TRASH_ICON[row.kind] || CheckCircle2;
+              return (
+                <li key={row.id} className="flex items-center gap-2.5 py-2">
+                  <Icon size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-slate-700 dark:text-slate-200">
+                      {row.title}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {row.kind}
+                      {row.counts ? ` · ${row.counts}` : ""} · {timeAgo(row.deletedAt)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => restoreItem(row)}
+                    aria-label={`Restore ${row.title}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-trail-600 transition hover:bg-trail-50 dark:text-trail-400 dark:hover:bg-slate-800"
+                  >
+                    <Undo2 size={13} /> Restore
+                  </button>
+                  <ConfirmButton
+                    label={`Delete ${row.title} forever`}
+                    onConfirm={() => purgeItem(row)}
+                    className="h-8 min-w-8 shrink-0"
+                  >
+                    <Trash2 size={14} />
+                  </ConfirmButton>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <div className="border-t border-slate-200 pt-4 dark:border-slate-700">

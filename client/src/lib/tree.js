@@ -22,6 +22,21 @@ export function roadmapTree(state) {
   });
 }
 
+/**
+ * Move the sibling `id` up (-1) or down (+1) and re-number positions contiguously.
+ * Mutates the passed rows in place (they're refs into save()'s cloned state).
+ */
+export function reorder(siblings, id, dir) {
+  const sorted = [...siblings].sort((a, b) => a.position - b.position);
+  const i = sorted.findIndex((x) => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= sorted.length) {
+    return;
+  }
+  [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
+  sorted.forEach((x, idx) => (x.position = idx));
+}
+
 /** Next position for a list (max + 1), so appends land at the end. */
 export function nextPosition(rows) {
   return rows.reduce((max, r) => Math.max(max, (r.position ?? 0) + 1), 0);

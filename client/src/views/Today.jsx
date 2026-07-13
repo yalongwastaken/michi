@@ -17,12 +17,15 @@ import {
   Plus as PlusIcon,
   Lightbulb,
   Footprints,
+  ListTodo,
+  StickyNote,
 } from "lucide-react";
 import { Card, Button, Input, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
 import { parseQuickAdd } from "../lib/quickadd.js";
 import TaskModal from "./TaskModal.jsx";
+import Backlog from "./Backlog.jsx";
 import Mascot from "./Mascot.jsx";
 
 // chips that explain why an item is in today's plan
@@ -136,9 +139,10 @@ function StreakChip({ streak }) {
   );
 }
 
-function Row({ item, onToggle, onEdit, onSkip, showReason }) {
+function Row({ item, note, onToggle, onEdit, onSkip, showReason }) {
   const isStep = item.kind === "step";
   const done = item.status === "done";
+  const [noteOpen, setNoteOpen] = useState(false);
   const reason = showReason
     ? REASON[
         item.reason === "pace"
@@ -205,7 +209,22 @@ function Row({ item, onToggle, onEdit, onSkip, showReason }) {
             </span>
           ) : null}
           {reason ? <Badge className={reason.cls}>{reason.label}</Badge> : null}
+          {note ? (
+            <button
+              onClick={() => setNoteOpen((v) => !v)}
+              aria-label={noteOpen ? "Hide note" : "Show note"}
+              aria-expanded={noteOpen}
+              className="inline-flex items-center p-0.5 text-iris-500 transition hover:text-iris-600"
+            >
+              <StickyNote size={12} />
+            </button>
+          ) : null}
         </div>
+        {note && noteOpen ? (
+          <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+            {note}
+          </p>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center">
         {onSkip ? (
@@ -223,7 +242,7 @@ function Row({ item, onToggle, onEdit, onSkip, showReason }) {
   );
 }
 
-function Section({ title, icon: Icon, items, onToggle, onEdit, tint = "text-slate-400" }) {
+function Section({ title, icon: Icon, items, noteOf, onToggle, onEdit, tint = "text-slate-400" }) {
   if (!items?.length) {
     return null;
   }
@@ -236,7 +255,13 @@ function Section({ title, icon: Icon, items, onToggle, onEdit, tint = "text-slat
       </div>
       <Card className="divide-y divide-slate-100 dark:divide-slate-800">
         {items.map((it) => (
-          <Row key={`${it.kind}_${it.id}`} item={it} onToggle={onToggle} onEdit={onEdit} />
+          <Row
+            key={`${it.kind}_${it.id}`}
+            item={it}
+            note={noteOf?.(it)}
+            onToggle={onToggle}
+            onEdit={onEdit}
+          />
         ))}
       </Card>
     </div>
@@ -245,7 +270,7 @@ function Section({ title, icon: Icon, items, onToggle, onEdit, tint = "text-slat
 
 const BUDGETS = [30, 60, 90, 120];
 
-function PlanCard({ ctx, onEdit }) {
+function PlanCard({ ctx, noteOf, onEdit }) {
   const { plan, complete, save, replan, skipPlanItem, aiEnabled, busy } = ctx;
   const [thinking, setThinking] = useState(false);
   if (!plan) {
@@ -297,6 +322,7 @@ function PlanCard({ ctx, onEdit }) {
             <Row
               key={`${it.kind}_${it.id}`}
               item={it}
+              note={noteOf?.(it)}
               onToggle={complete}
               onEdit={onEdit}
               onSkip={(x) => skipPlanItem(x.kind, x.id, true)}
@@ -369,6 +395,7 @@ export default function Today({ ctx }) {
   const [showDone, setShowDone] = useState(false);
   const [showBrowse, setShowBrowse] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showBacklog, setShowBacklog] = useState(false);
   const [editTask, setEditTask] = useState(null);
   const submitting = useRef(false); // blocks a double Enter from adding twice
 
@@ -376,6 +403,12 @@ export default function Today({ ctx }) {
   const openEdit = (item) => {
     const full = (state.tasks || []).find((t) => t.id === item.id);
     setEditTask(full || item);
+  };
+
+  // plan/queue items are lean projections without notes — resolve them from state
+  const noteFor = (item) => {
+    const rows = item.kind === "step" ? state.steps : state.tasks;
+    return (rows || []).find((x) => x.id === item.id)?.notes || null;
   };
 
   if (!today) {
@@ -408,6 +441,7 @@ export default function Today({ ctx }) {
   const goal = momentum?.dailyGoal ?? 3;
   const did = momentum?.todayCount ?? 0;
   const browseCount = today.overdue.length + today.dueToday.length + today.suggested.length;
+  const openTasks = (state.tasks || []).filter((t) => t.status !== "done").length;
 
   return (
     <div className="space-y-5">
@@ -467,7 +501,18 @@ export default function Today({ ctx }) {
         </Button>
       </form>
 
-      <PlanCard ctx={ctx} onEdit={openEdit} />
+      {openTasks > 0 ? (
+        <div className="-mt-2 flex justify-end">
+          <button
+            onClick={() => setShowBacklog(true)}
+            className="inline-flex items-center gap-1 px-1 text-xs font-medium text-slate-400 transition hover:text-trail-600"
+          >
+            <ListTodo size={13} /> All tasks · {openTasks} →
+          </button>
+        </div>
+      ) : null}
+
+      <PlanCard ctx={ctx} noteOf={noteFor} onEdit={openEdit} />
 
       {browseCount > 0 ? (
         <div>
@@ -484,6 +529,7 @@ export default function Today({ ctx }) {
                 title="Overdue"
                 icon={CircleDot}
                 items={today.overdue}
+                noteOf={noteFor}
                 onToggle={complete}
                 onEdit={openEdit}
                 tint="text-rose-500"
@@ -492,6 +538,7 @@ export default function Today({ ctx }) {
                 title="Due today"
                 icon={CircleDot}
                 items={today.dueToday}
+                noteOf={noteFor}
                 onToggle={complete}
                 onEdit={openEdit}
               />
@@ -499,6 +546,7 @@ export default function Today({ ctx }) {
                 title="Suggested next steps"
                 icon={Sparkles}
                 items={today.suggested}
+                noteOf={noteFor}
                 onToggle={complete}
                 tint="text-trail-600"
               />
@@ -528,6 +576,7 @@ export default function Today({ ctx }) {
 
       {showNew ? <TaskModal ctx={ctx} onClose={() => setShowNew(false)} /> : null}
       {editTask ? <TaskModal ctx={ctx} task={editTask} onClose={() => setEditTask(null)} /> : null}
+      {showBacklog ? <Backlog ctx={ctx} onClose={() => setShowBacklog(false)} /> : null}
     </div>
   );
 }
