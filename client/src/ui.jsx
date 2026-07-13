@@ -1,5 +1,5 @@
 // ui.jsx — small shared presentational primitives, so the views stay readable.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 export function Card({ className = "", children, ...rest }) {
@@ -43,6 +43,50 @@ export function IconButton({ label, className = "", children, ...rest }) {
       {...rest}
     >
       {children}
+    </button>
+  );
+}
+
+/**
+ * Two-tap confirm for destructive actions — the same pattern as the Settings danger
+ * zone, compacted for icon rows: the first tap arms it and swaps the content for a
+ * short prompt, a second tap within 3s fires `onConfirm`, otherwise it quietly disarms.
+ */
+export function ConfirmButton({
+  label,
+  confirm = "sure?",
+  onConfirm,
+  className = "",
+  children,
+  ...rest
+}) {
+  const [armed, setArmed] = useState(false);
+  const timerRef = useRef(null);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+  const tap = () => {
+    clearTimeout(timerRef.current);
+    if (!armed) {
+      setArmed(true);
+      timerRef.current = setTimeout(() => setArmed(false), 3000);
+      return;
+    }
+    setArmed(false);
+    onConfirm?.();
+  };
+  return (
+    <button
+      type="button"
+      aria-label={armed ? `${label} — tap again to confirm` : label}
+      title={label}
+      onClick={tap}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-xl text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 ${
+        armed
+          ? "bg-rose-50 px-2 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
+          : "text-slate-500 hover:bg-slate-100 hover:text-rose-500 dark:text-slate-400 dark:hover:bg-slate-800"
+      } ${className}`}
+      {...rest}
+    >
+      {armed ? confirm : children}
     </button>
   );
 }

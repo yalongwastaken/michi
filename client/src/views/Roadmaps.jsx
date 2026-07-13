@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Plus,
   Check,
@@ -18,6 +18,7 @@ import {
 import {
   Card,
   Button,
+  ConfirmButton,
   IconButton,
   Input,
   Field,
@@ -84,8 +85,9 @@ function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy
   const doing = step.status === "doing";
   return (
     <div className="group flex items-center gap-2 py-2">
+      {/* no busy gate on the status toggles: they're optimistic and the write queue
+          serializes, so working through a milestone shouldn't be tap-wait-tap-wait */}
       <button
-        disabled={busy}
         onClick={() => onDone(step, !done)}
         aria-label={done ? "Mark not done" : "Mark done"}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${
@@ -98,7 +100,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy
       </button>
       {/* tap the title to toggle "in progress" (touch-friendly, no hover needed) */}
       <button
-        disabled={busy || done}
+        disabled={done}
         onClick={() => onDoing(step, !doing)}
         className={`min-w-0 flex-1 truncate text-left text-sm ${
           done ? "text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"
@@ -119,27 +121,34 @@ function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy
         </a>
       ) : null}
       <MoveButtons canUp={canUp} canDown={canDown} onMove={onMove} busy={busy} />
-      <button
+      <ConfirmButton
+        label="Delete step"
+        onConfirm={() => onDelete(step)}
         disabled={busy}
-        onClick={() => onDelete(step)}
-        aria-label="Delete step"
-        className="shrink-0 p-1 text-slate-400 transition hover:text-rose-500"
+        className="h-7 min-w-7 shrink-0"
       >
         <Trash2 size={14} />
-      </button>
+      </ConfirmButton>
     </div>
   );
 }
 
 function AddInline({ placeholder, onAdd, busy }) {
   const [v, setV] = useState("");
+  const submitting = useRef(false); // blocks a double Enter from adding twice
   return (
     <form
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (v.trim()) {
-          onAdd(v.trim());
-          setV("");
+        const title = v.trim();
+        if (!title || submitting.current) {
+          return;
+        }
+        submitting.current = true;
+        const ok = await onAdd(title);
+        submitting.current = false;
+        if (ok !== false) {
+          setV(""); // only on success — a failed add keeps the text for retry
         }
       }}
       className="flex items-center gap-2 pt-1"
@@ -163,6 +172,9 @@ function AddInline({ placeholder, onAdd, busy }) {
   );
 }
 
+// NOTE: duplicates the server's pacing math (insights.js deadline nudges, the
+// planner's "pace" picks) — the dashboard payload carries no per-roadmap pacing,
+// so it's recomputed here. Keep the day-count and rounding in sync if either changes.
 function deadlineInfo(rm, today) {
   if (!rm.targetDate) {
     return null;
@@ -371,9 +383,9 @@ function RoadmapCard({ rm, ctx, onEdit }) {
             <IconButton label={rm.archived ? "Unarchive" : "Archive"} onClick={toggleArchive}>
               {rm.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
             </IconButton>
-            <IconButton label="Delete roadmap" className="hover:text-rose-500" onClick={remove}>
+            <ConfirmButton label="Delete roadmap" onConfirm={remove} className="h-10 min-w-10">
               <Trash2 size={16} />
-            </IconButton>
+            </ConfirmButton>
           </div>
         </div>
       ) : null}
@@ -410,8 +422,9 @@ function RoadmapModal({ ctx, roadmap = null, onClose }) {
     roadmap?.stepMinutes != null ? String(roadmap.stepMinutes) : "",
   );
 
+  const submitting = useRef(false); // Enter + click (or two quick Enters) → one create
   const commit = async () => {
-    if (!title.trim()) {
+    if (submitting.current || !title.trim()) {
       return;
     }
     const fields = {
@@ -421,6 +434,7 @@ function RoadmapModal({ ctx, roadmap = null, onClose }) {
       targetDate: targetDate || null,
       stepMinutes: stepMinutes === "" ? null : Number(stepMinutes),
     };
+    submitting.current = true;
     const ok = await save((s) => {
       if (editing) {
         const r = s.roadmaps.find((x) => x.id === roadmap.id);
@@ -436,6 +450,7 @@ function RoadmapModal({ ctx, roadmap = null, onClose }) {
         });
       }
     });
+    submitting.current = false;
     if (ok !== false) {
       onClose();
     }

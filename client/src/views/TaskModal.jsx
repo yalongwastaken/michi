@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Modal, Button, Field, Input, Select } from "../ui.jsx";
+import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
 import { roadmapTree } from "../lib/tree.js";
 import { uid } from "../lib/uid.js";
 
@@ -38,10 +38,12 @@ export default function TaskModal({ ctx, task = null, onClose }) {
     projectId: projectId || null,
   });
 
+  const submitting = useRef(false); // Enter + click (or two quick Enters) → one submit
   const submit = async () => {
-    if (!title.trim()) {
+    if (submitting.current || !title.trim()) {
       return;
     }
+    submitting.current = true;
     let ok;
     if (editing) {
       ok = await save((s) => {
@@ -53,6 +55,7 @@ export default function TaskModal({ ctx, task = null, onClose }) {
     } else {
       ok = await addTask({ id: uid("task"), status: "todo", ...fields() });
     }
+    submitting.current = false;
     if (ok !== false) {
       onClose();
     }
@@ -74,14 +77,15 @@ export default function TaskModal({ ctx, task = null, onClose }) {
       footer={
         <>
           {editing ? (
-            <Button
-              variant="ghost"
-              className="mr-auto text-rose-500"
-              onClick={remove}
+            <ConfirmButton
+              label="Delete task"
+              confirm="Really delete?"
+              onConfirm={remove}
               disabled={busy}
+              className="mr-auto h-9 px-2"
             >
               <Trash2 size={15} /> Delete
-            </Button>
+            </ConfirmButton>
           ) : null}
           <Button variant="ghost" onClick={onClose}>
             Cancel
