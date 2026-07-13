@@ -212,6 +212,18 @@ export default function Momentum({ ctx }) {
   const { streak } = m;
   const review = ctx.review;
   const activeRoadmaps = m.roadmaps.filter((r) => !r.archived && r.total > 0);
+  // freeze budget: the richer payload when the server sends it, else derived from
+  // the streak fields (older servers) so the line never disappears mid-upgrade
+  const fz =
+    m.freezes ||
+    (streak.freezes
+      ? {
+          total: streak.freezes,
+          used: streak.freezesUsed,
+          left: streak.freezes - streak.freezesUsed,
+          earned: 0,
+        }
+      : null);
 
   return (
     <div className="space-y-5">
@@ -232,11 +244,17 @@ export default function Momentum({ ctx }) {
                 ? "Goal met today. Nice."
                 : `${m.todayCount}/${m.dailyGoal} toward today's goal.`}
           </p>
-          {streak.freezes ? (
-            <p className="mt-1 inline-flex items-center gap-1 text-xs text-iris-500">
-              <Snowflake size={12} /> {streak.freezes - streak.freezesUsed} of {streak.freezes}{" "}
-              freezes left
-            </p>
+          {fz?.total ? (
+            <>
+              <p className="mt-1 flex items-center gap-1 text-xs text-iris-500">
+                <Snowflake size={12} /> {fz.left} of {fz.total} freezes left
+              </p>
+              {fz.earned > 0 ? (
+                <p className="mt-0.5 text-xs font-medium text-iris-500">
+                  +{fz.earned} earned on the path
+                </p>
+              ) : null}
+            </>
           ) : null}
         </div>
         <Flame

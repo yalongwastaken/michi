@@ -1,18 +1,34 @@
 import { useRef, useState } from "react";
-import { Plus, Hammer, Github, Trash2, Rocket, Lightbulb, Circle, ArrowRight } from "lucide-react";
+import {
+  Plus,
+  Hammer,
+  Github,
+  Trash2,
+  Rocket,
+  Lightbulb,
+  Circle,
+  ArrowRight,
+  Pencil,
+  Map as MapIcon,
+} from "lucide-react";
 import {
   Card,
   Button,
   ConfirmButton,
+  IconButton,
   Input,
   Field,
   Textarea,
+  Select,
   Modal,
   EmptyState,
   Badge,
+  MoveButtons,
 } from "../ui.jsx";
 import { uid } from "../lib/uid.js";
 import { shortDate } from "../lib/format.js";
+import { roadmapTree, reorder, nextPosition } from "../lib/tree.js";
+import { deleteProject } from "../lib/mutate.js";
 import { focusMainHeading } from "../lib/a11y.js";
 
 const FLOW = ["idea", "active", "shipped"];
@@ -37,7 +53,7 @@ const META = {
   },
 };
 
-function ProjectCard({ p, ctx }) {
+function ProjectCard({ p, ctx, roadmap, onEdit, onMove, canUp, canDown }) {
   const { save, busy } = ctx;
   const idx = FLOW.indexOf(p.status);
   const nextStatus = FLOW[idx + 1];
@@ -52,22 +68,30 @@ function ProjectCard({ p, ctx }) {
     });
 
   const remove = async () => {
-    await save((s) => {
-      s.projects = s.projects.filter((x) => x.id !== p.id);
-    });
+    // deleteProject also unlinks tasks pointing here (dangling refs 400 the PUT)
+    const ok = await save((s) => deleteProject(s, p.id));
     focusMainHeading();
+    if (ok !== false) {
+      ctx.notifyDeleted?.("project", p.title); // the undo toast's cue
+    }
   };
 
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-slate-800 dark:text-slate-100">{p.title}</h3>
           {p.summary ? <p className="mt-0.5 text-sm text-slate-500">{p.summary}</p> : null}
         </div>
-        <ConfirmButton label="Delete project" onConfirm={remove} className="h-10 min-w-10 shrink-0">
-          <Trash2 size={16} />
-        </ConfirmButton>
+        <div className="flex shrink-0 items-center">
+          <MoveButtons canUp={canUp} canDown={canDown} onMove={onMove} busy={busy} />
+          <IconButton label="Edit project" className="h-9 w-9" onClick={onEdit}>
+            <Pencil size={15} />
+          </IconButton>
+          <ConfirmButton label="Delete project" onConfirm={remove} className="h-9 min-w-9">
+            <Trash2 size={16} />
+          </ConfirmButton>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {p.repoUrl ? (
@@ -79,6 +103,18 @@ function ProjectCard({ p, ctx }) {
           >
             <Github size={13} /> repo
           </a>
+        ) : null}
+        {roadmap ? (
+          // the paired learning path — tap to jump to the Roadmaps tab
+          <button
+            onClick={() => ctx.setTab?.("roadmaps")}
+            aria-label={`Open roadmap ${roadmap.title} — ${roadmap.pct}% complete`}
+            className="inline-flex max-w-[14rem] items-center gap-1 rounded-lg bg-trail-50 px-2 py-1 text-xs text-trail-700 hover:bg-trail-100 dark:bg-slate-800 dark:text-trail-300 dark:hover:bg-slate-700"
+          >
+            <MapIcon size={12} className="shrink-0" />
+            <span className="truncate">{roadmap.title}</span>
+            <span className="shrink-0 font-semibold">{roadmap.pct}%</span>
+          </button>
         ) : null}
         {p.shippedAt ? (
           <Badge className={META.shipped.chip}>shipped {shortDate(p.shippedAt)}</Badge>
@@ -98,28 +134,43 @@ function ProjectCard({ p, ctx }) {
   );
 }
 
-function NewProjectModal({ ctx, onClose }) {
-  const { save, busy } = ctx;
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [status, setStatus] = useState("idea");
+/** Create or edit a project — pass `project` to edit. */
+function ProjectModal({ ctx, project = null, onClose }) {
+  const { state, save, busy } = ctx;
+  const editing = !!project;
+  const [title, setTitle] = useState(project?.title || "");
+  const [summary, setSummary] = useState(project?.summary || "");
+  const [repoUrl, setRepoUrl] = useState(project?.repoUrl || "");
+  const [status, setStatus] = useState(project?.status || "idea");
+  const [roadmapId, setRoadmapId] = useState(project?.roadmapId || "");
+  const roadmaps = state.roadmaps || [];
 
-  const submitting = useRef(false); // Enter + click (or two quick Enters) → one create
-  const create = async () => {
+  const submitting = useRef(false); // Enter + click (or two quick Enters) → one commit
+  const commit = async () => {
     if (submitting.current || !title.trim()) {
       return;
     }
+    const fields = {
+      title: title.trim(),
+      summary: summary.trim() || null,
+      repoUrl: repoUrl.trim() || null,
+      status,
+      roadmapId: roadmapId || null,
+    };
     submitting.current = true;
     const ok = await save((s) => {
-      s.projects.push({
-        id: uid("proj"),
-        title: title.trim(),
-        summary: summary.trim() || null,
-        repoUrl: repoUrl.trim() || null,
-        status,
-        position: s.projects.length,
-      });
+      if (editing) {
+        const t = s.projects.find((x) => x.id === project.id);
+        if (t) {
+          Object.assign(t, fields);
+        }
+      } else {
+        s.projects.push({
+          id: uid("proj"),
+          position: nextPosition(s.projects),
+          ...fields,
+        });
+      }
     });
     submitting.current = false;
     if (ok !== false) {
@@ -129,15 +180,15 @@ function NewProjectModal({ ctx, onClose }) {
 
   return (
     <Modal
-      title="New project"
+      title={editing ? "Edit project" : "New project"}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={create} disabled={busy || !title.trim()}>
-            Create
+          <Button onClick={commit} disabled={busy || !title.trim()}>
+            {editing ? "Save" : "Create"}
           </Button>
         </>
       }
@@ -148,7 +199,7 @@ function NewProjectModal({ ctx, onClose }) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Build a tiny RTOS scheduler"
-          onKeyDown={(e) => e.key === "Enter" && create()}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
         />
       </Field>
       <Field label="What is it?" hint="Optional one-liner — why it's meaningful to you.">
@@ -161,6 +212,18 @@ function NewProjectModal({ ctx, onClose }) {
           placeholder="https://github.com/…"
         />
       </Field>
+      {roadmaps.length ? (
+        <Field label="Linked roadmap" hint="The learning path this project puts into practice.">
+          <Select value={roadmapId} onChange={(e) => setRoadmapId(e.target.value)}>
+            <option value="">— none —</option>
+            {roadmaps.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
       <Field label="Stage">
         <div className="flex gap-2">
           {FLOW.map((st) => (
@@ -184,7 +247,22 @@ function NewProjectModal({ ctx, onClose }) {
 
 export default function Projects({ ctx }) {
   const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
   const projects = ctx.state.projects || [];
+  // roadmap progress for the linked-roadmap chips, keyed by id
+  const rmById = new Map(roadmapTree(ctx.state).map((r) => [r.id, r]));
+  // edit the latest version of the project (state may have refreshed underneath)
+  const editing = editId ? projects.find((p) => p.id === editId) : null;
+
+  // reorder within the project's stage group — that's the visible list order
+  const moveProject = (p, dir) =>
+    ctx.save((s) =>
+      reorder(
+        s.projects.filter((x) => x.status === p.status),
+        p.id,
+        dir,
+      ),
+    );
 
   return (
     <div className="space-y-4">
@@ -211,7 +289,9 @@ export default function Projects({ ctx }) {
       ) : (
         <div className="space-y-5">
           {FLOW.map((st) => {
-            const group = projects.filter((p) => p.status === st);
+            const group = projects
+              .filter((p) => p.status === st)
+              .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
             if (!group.length) {
               return null;
             }
@@ -225,8 +305,17 @@ export default function Projects({ ctx }) {
                   <span className="text-slate-300">· {group.length}</span>
                 </div>
                 <div className="space-y-2.5">
-                  {group.map((p) => (
-                    <ProjectCard key={p.id} p={p} ctx={ctx} />
+                  {group.map((p, i) => (
+                    <ProjectCard
+                      key={p.id}
+                      p={p}
+                      ctx={ctx}
+                      roadmap={p.roadmapId ? rmById.get(p.roadmapId) : null}
+                      onEdit={() => setEditId(p.id)}
+                      onMove={(dir) => moveProject(p, dir)}
+                      canUp={i > 0}
+                      canDown={i < group.length - 1}
+                    />
                   ))}
                 </div>
               </div>
@@ -235,7 +324,8 @@ export default function Projects({ ctx }) {
         </div>
       )}
 
-      {adding && <NewProjectModal ctx={ctx} onClose={() => setAdding(false)} />}
+      {adding && <ProjectModal ctx={ctx} onClose={() => setAdding(false)} />}
+      {editing && <ProjectModal ctx={ctx} project={editing} onClose={() => setEditId(null)} />}
     </div>
   );
 }

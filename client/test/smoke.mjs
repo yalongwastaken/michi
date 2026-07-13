@@ -70,7 +70,16 @@ const STATE = {
   projects: [
     { id: "p", title: "Blinky", status: "active", position: 0, createdAt: "2026-06-01T00:00:00Z" },
   ],
-  tasks: [{ id: "t1", title: "Read datasheet", status: "todo", due: "2026-06-23", estMin: 20 }],
+  tasks: [
+    {
+      id: "t1",
+      title: "Read datasheet",
+      status: "todo",
+      due: "2026-06-23",
+      estMin: 20,
+      notes: "start at §4.2 — the pinout table",
+    },
+  ],
   completions: [
     { id: "c1", day: "2026-06-23", kind: "step", refId: "s1", ts: "2026-06-23T10:00:00Z" },
   ],
@@ -136,7 +145,8 @@ const DASH = {
   },
   momentum: {
     day: "2026-06-23",
-    streak: { current: 1, longest: 1, atRisk: false, freezesUsed: 0, freezes: 2 },
+    streak: { current: 1, longest: 1, atRisk: false, freezesUsed: 0, freezes: 3 },
+    freezes: { base: 2, earned: 1, total: 3, used: 0, left: 3 },
     todayCount: 1,
     dailyGoal: 3,
     metGoal: false,
@@ -161,6 +171,18 @@ globalThis.fetch = async (url, opts = {}) => {
   let body = STATE;
   if (u.includes("/api/config")) {
     body = { ai: false, model: null };
+  } else if (u.includes("/api/trash")) {
+    body = {
+      items: [
+        {
+          id: "trash_1",
+          kind: "task",
+          title: "Old scratch task",
+          deletedAt: "2026-06-20T09:00:00Z",
+          counts: null,
+        },
+      ],
+    };
   } else if (u.includes("/api/dashboard")) {
     body = DASH;
   } else if (u.includes("/api/plan")) {
@@ -253,6 +275,30 @@ try {
   }
 } catch (e) {
   fails.push(`quick-add: ${e.message}`);
+}
+
+// backlog sheet: opens from Today, lists the stubbed task, stays open for the
+// a11y scan below so its rows get checked too
+try {
+  const openBtn = [...document.querySelectorAll("main button")].find((b) =>
+    b.textContent.includes("All tasks"),
+  );
+  if (!openBtn) {
+    fails.push("backlog: no 'All tasks' button on Today");
+  } else {
+    await act(async () => openBtn.click());
+    await new Promise((r) => setTimeout(r, 100));
+    const dlg = document.querySelector('[role="dialog"]');
+    if (!dlg) {
+      fails.push("backlog: sheet didn't open");
+    } else if (!dlg.textContent.includes("Read datasheet")) {
+      fails.push("backlog: task row missing");
+    } else {
+      console.log("  ✓ backlog sheet lists tasks");
+    }
+  }
+} catch (e) {
+  fails.push(`backlog: ${e.message}`);
 }
 
 // lightweight accessibility scan: every control needs an accessible name

@@ -31,6 +31,33 @@ export function dueLabel(due, today = todayKey()) {
   return `in ${diff}d`;
 }
 
+/** YYYY-MM-DD shifted by n days (noon-UTC anchored, so DST can't skip a day). */
+export function addDays(day, n) {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Compact "3d ago" label for an ISO timestamp (trash rows, history lines). */
+export function timeAgo(iso, now = Date.now()) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) {
+    return "";
+  }
+  const min = Math.floor(Math.max(0, now - t) / 60000);
+  if (min < 1) {
+    return "just now";
+  }
+  if (min < 60) {
+    return `${min}m ago`;
+  }
+  const h = Math.floor(min / 60);
+  if (h < 24) {
+    return `${h}h ago`;
+  }
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 /** "23 Jun" style short date. */
 export function shortDate(iso) {
   if (!iso) {

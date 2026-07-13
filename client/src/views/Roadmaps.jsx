@@ -5,7 +5,6 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Map,
   ExternalLink,
   Archive,
@@ -14,6 +13,7 @@ import {
   Upload,
   Pencil,
   CalendarClock,
+  StickyNote,
 } from "lucide-react";
 import {
   Card,
@@ -27,8 +27,10 @@ import {
   Modal,
   EmptyState,
   ProgressBar,
+  MoveButtons,
 } from "../ui.jsx";
-import { roadmapTree, nextPosition } from "../lib/tree.js";
+import { roadmapTree, nextPosition, reorder } from "../lib/tree.js";
+import { deleteRoadmap, deleteStep } from "../lib/mutate.js";
 import { parseRoadmap } from "../lib/parse.js";
 import { shortDate } from "../lib/format.js";
 import { focusMainHeading } from "../lib/a11y.js";
@@ -44,91 +46,144 @@ const STEP_MINUTE_OPTS = [
 
 const COLORS = ["#10B981", "#0EA5E9", "#8B5CF6", "#F59E0B", "#F43F5E", "#64748B"];
 
-/** Move the sibling `id` up (-1) or down (+1) and re-number positions contiguously. */
-function reorder(siblings, id, dir) {
-  const sorted = [...siblings].sort((a, b) => a.position - b.position);
-  const i = sorted.findIndex((x) => x.id === id);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= sorted.length) {
-    return;
-  }
-  [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
-  sorted.forEach((x, idx) => (x.position = idx)); // mutates the shared state refs
-}
-
-/** Compact up/down reorder control. */
-function MoveButtons({ canUp, canDown, onMove, busy }) {
-  return (
-    <span className="flex flex-col">
-      <button
-        disabled={busy || !canUp}
-        onClick={() => onMove(-1)}
-        aria-label="Move up"
-        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
-      >
-        <ChevronUp size={14} />
-      </button>
-      <button
-        disabled={busy || !canDown}
-        onClick={() => onMove(1)}
-        aria-label="Move down"
-        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
-      >
-        <ChevronDown size={14} />
-      </button>
-    </span>
-  );
-}
-
-function StepRow({ step, onDone, onDoing, onDelete, onMove, canUp, canDown, busy }) {
+function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, canDown, busy }) {
   const done = step.status === "done";
   const doing = step.status === "doing";
+  const hasNote = !!(step.notes && step.notes.trim());
+  // note panel: closed → read-only → editing. A row without a note jumps straight
+  // to the textarea, so the same tiny glyph is both "view note" and "add note".
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const submitting = useRef(false); // blocks a double tap from saving twice
+
+  const toggleNote = () => {
+    if (noteOpen) {
+      setNoteOpen(false);
+      setEditing(false);
+      return;
+    }
+    setDraft(step.notes || "");
+    setEditing(!hasNote);
+    setNoteOpen(true);
+  };
+
+  const saveNote = async () => {
+    if (submitting.current) {
+      return;
+    }
+    submitting.current = true;
+    const ok = await onSaveNote(step, draft.trim() || null);
+    submitting.current = false;
+    if (ok !== false) {
+      setNoteOpen(false);
+      setEditing(false);
+    }
+  };
+
   return (
-    <div className="group flex items-center gap-2 py-2">
-      {/* no busy gate on the status toggles: they're optimistic and the write queue
-          serializes, so working through a milestone shouldn't be tap-wait-tap-wait */}
-      <button
-        onClick={() => onDone(step, !done)}
-        aria-label={done ? "Mark not done" : "Mark done"}
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${
-          done
-            ? "border-trail-500 bg-trail-500 text-white"
-            : "border-slate-300 text-transparent hover:border-trail-400 dark:border-slate-600"
-        }`}
-      >
-        <Check size={12} strokeWidth={3} />
-      </button>
-      {/* tap the title to toggle "in progress" (touch-friendly, no hover needed) */}
-      <button
-        disabled={done}
-        onClick={() => onDoing(step, !doing)}
-        className={`min-w-0 flex-1 truncate text-left text-sm ${
-          done ? "text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"
-        }`}
-      >
-        {step.title}
-        {doing ? <span className="ml-2 text-xs font-medium text-iris-500">in progress</span> : null}
-      </button>
-      {step.resourceUrl ? (
-        <a
-          href={step.resourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 p-1 text-slate-400 hover:text-trail-600"
-          aria-label="Open resource"
+    <div>
+      <div className="group flex items-center gap-2 py-2">
+        {/* no busy gate on the status toggles: they're optimistic and the write queue
+            serializes, so working through a milestone shouldn't be tap-wait-tap-wait */}
+        <button
+          onClick={() => onDone(step, !done)}
+          aria-label={done ? "Mark not done" : "Mark done"}
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${
+            done
+              ? "border-trail-500 bg-trail-500 text-white"
+              : "border-slate-300 text-transparent hover:border-trail-400 dark:border-slate-600"
+          }`}
         >
-          <ExternalLink size={14} />
-        </a>
+          <Check size={12} strokeWidth={3} />
+        </button>
+        {/* tap the title to toggle "in progress" (touch-friendly, no hover needed) */}
+        <button
+          disabled={done}
+          onClick={() => onDoing(step, !doing)}
+          className={`min-w-0 flex-1 truncate text-left text-sm ${
+            done ? "text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"
+          }`}
+        >
+          {step.title}
+          {doing ? (
+            <span className="ml-2 text-xs font-medium text-iris-500">in progress</span>
+          ) : null}
+        </button>
+        {step.resourceUrl ? (
+          <a
+            href={step.resourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 p-1 text-slate-400 hover:text-trail-600"
+            aria-label="Open resource"
+          >
+            <ExternalLink size={14} />
+          </a>
+        ) : null}
+        {/* faint when empty (the "add note" spot), iris when a note is waiting */}
+        <button
+          onClick={toggleNote}
+          aria-label={hasNote ? "View note" : "Add note"}
+          aria-expanded={noteOpen}
+          className={`shrink-0 p-1 transition ${
+            hasNote
+              ? "text-iris-500 hover:text-iris-600"
+              : "text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400"
+          }`}
+        >
+          <StickyNote size={14} />
+        </button>
+        <MoveButtons canUp={canUp} canDown={canDown} onMove={onMove} busy={busy} />
+        <ConfirmButton
+          label="Delete step"
+          onConfirm={() => onDelete(step)}
+          disabled={busy}
+          className="h-7 min-w-7 shrink-0"
+        >
+          <Trash2 size={14} />
+        </ConfirmButton>
+      </div>
+      {noteOpen ? (
+        <div className="mb-2 ml-7 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/60">
+          {editing ? (
+            <div className="space-y-1.5">
+              <textarea
+                rows={2}
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="anything future-you should know…"
+                aria-label="Step note"
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-trail-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              />
+              <div className="flex justify-end gap-1">
+                <Button variant="ghost" onClick={toggleNote} className="!px-2.5 !py-1 text-xs">
+                  Cancel
+                </Button>
+                <Button onClick={saveNote} disabled={busy} className="!px-2.5 !py-1 text-xs">
+                  Save note
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                {step.notes}
+              </p>
+              <button
+                onClick={() => {
+                  setDraft(step.notes || "");
+                  setEditing(true);
+                }}
+                className="shrink-0 text-xs font-medium text-trail-600 hover:underline dark:text-trail-400"
+              >
+                Edit
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
-      <MoveButtons canUp={canUp} canDown={canDown} onMove={onMove} busy={busy} />
-      <ConfirmButton
-        label="Delete step"
-        onConfirm={() => onDelete(step)}
-        disabled={busy}
-        className="h-7 min-w-7 shrink-0"
-      >
-        <Trash2 size={14} />
-      </ConfirmButton>
     </div>
   );
 }
@@ -208,9 +263,16 @@ function RoadmapCard({ rm, ctx, onEdit }) {
       }
     });
 
-  const delStep = (step) =>
+  // deleteStep also unlinks tasks pointing at the step — the server rejects
+  // dangling task.stepId refs, so a bare filter would 400 the save
+  const delStep = (step) => save((s) => deleteStep(s, step.id));
+
+  const saveNote = (step, notes) =>
     save((s) => {
-      s.steps = s.steps.filter((x) => x.id !== step.id);
+      const t = s.steps.find((x) => x.id === step.id);
+      if (t) {
+        t.notes = notes;
+      }
     });
 
   const addStep = (milestoneId, title) =>
@@ -261,13 +323,13 @@ function RoadmapCard({ rm, ctx, onEdit }) {
     });
 
   const remove = async () => {
-    await save((s) => {
-      s.roadmaps = s.roadmaps.filter((x) => x.id !== rm.id);
-      const msIds = s.milestones.filter((m) => m.roadmapId === rm.id).map((m) => m.id);
-      s.milestones = s.milestones.filter((m) => m.roadmapId !== rm.id);
-      s.steps = s.steps.filter((x) => !msIds.includes(x.milestoneId));
-    });
+    // deleteRoadmap takes milestones + steps along and unlinks projects/tasks
+    // that pointed here (the server rejects dangling refs)
+    const ok = await save((s) => deleteRoadmap(s, rm.id));
     focusMainHeading(); // the card just vanished — don't drop focus to <body>
+    if (ok !== false) {
+      ctx.notifyDeleted?.("roadmap", rm.title); // the undo toast's cue
+    }
   };
 
   return (
@@ -355,6 +417,7 @@ function RoadmapCard({ rm, ctx, onEdit }) {
                         onDone={setDone}
                         onDoing={setDoing}
                         onDelete={delStep}
+                        onSaveNote={saveNote}
                         onMove={(dir) => moveStep(m.id, st.id, dir)}
                         canUp={si > 0}
                         canDown={si < m.steps.length - 1}

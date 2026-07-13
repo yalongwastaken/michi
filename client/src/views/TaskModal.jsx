@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
+import { Modal, Button, ConfirmButton, Field, Input, Select, Textarea } from "../ui.jsx";
 import { roadmapTree } from "../lib/tree.js";
+import { deleteTask } from "../lib/mutate.js";
 import { uid } from "../lib/uid.js";
 
 const RECURRENCES = [
@@ -25,6 +26,7 @@ export default function TaskModal({ ctx, task = null, onClose }) {
   const [estMin, setEstMin] = useState(task?.estMin != null ? String(task.estMin) : "");
   const [stepId, setStepId] = useState(task?.stepId || "");
   const [projectId, setProjectId] = useState(task?.projectId || "");
+  const [notes, setNotes] = useState(task?.notes || "");
 
   const tree = roadmapTree(state);
   const projects = state.projects || [];
@@ -36,6 +38,7 @@ export default function TaskModal({ ctx, task = null, onClose }) {
     estMin: estMin === "" ? null : Number(estMin),
     stepId: stepId || null,
     projectId: projectId || null,
+    notes: notes.trim() || null,
   });
 
   const submitting = useRef(false); // Enter + click (or two quick Enters) → one submit
@@ -62,11 +65,10 @@ export default function TaskModal({ ctx, task = null, onClose }) {
   };
 
   const remove = async () => {
-    const ok = await save((s) => {
-      s.tasks = s.tasks.filter((x) => x.id !== task.id);
-    });
+    const ok = await save((s) => deleteTask(s, task.id));
     if (ok !== false) {
       onClose();
+      ctx.notifyDeleted?.("task", task.title); // the undo toast's cue
     }
   };
 
@@ -147,6 +149,15 @@ export default function TaskModal({ ctx, task = null, onClose }) {
             </optgroup>
           ))}
         </Select>
+      </Field>
+
+      <Field label="Notes">
+        <Textarea
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="anything future-you should know…"
+        />
       </Field>
 
       {projects.length ? (
