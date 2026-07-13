@@ -1,5 +1,8 @@
 // db.test.js — schema, lean writes, validation, and full-state replace.
 // Uses a throwaway DB file via MICHI_DB (set before importing db.js).
+// Pin the timezone: the activity-summary tests inject ISO timestamps and assert
+// on the local day they land in (same reasoning as engine.test.js).
+process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
@@ -247,4 +250,70 @@ test("export → import round-trip retains completions", () => {
     restored.tasks.map((t) => t.id),
     exported.tasks.map((t) => t.id),
   );
+});
+
+test("activity summary: cached counts follow the toggle path exactly", () => {
+  db.resetAll();
+  db.addTask({ id: "act", title: "cache me" });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0 }); // built lazily, empty
+
+  db.setDone("task", "act", true, "2026-06-22T12:00:00Z");
+  let a = db.getActivitySummary();
+  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0 });
+  assert.deepEqual(a.totals, { tasks: 1, steps: 0 });
+
+  // a same-day re-complete is a log no-op (UNIQUE) — the cache must not double-count
+  db.setDone("task", "act", true, "2026-06-22T13:00:00Z");
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+
+  // the same item completed on another day is a second row of real history
+  db.setDone("task", "act", true, "2026-06-23T09:00:00Z");
+  a = db.getActivitySummary();
+  assert.equal(a.byDay.size, 2);
+  assert.deepEqual(a.totals, { tasks: 2, steps: 0 });
+
+  // toggle off retracts only that day's credit — and the emptied day stops
+  // counting as "active" (daysActive reads byDay.size)
+  db.setDone("task", "act", false, "2026-06-23T10:00:00Z");
+  a = db.getActivitySummary();
+  assert.equal(a.byDay.has("2026-06-23"), false);
+  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0 });
+  assert.deepEqual(a.totals, { tasks: 1, steps: 0 });
+
+  // a second undo has nothing left to retract — no drift below zero
+  db.setDone("task", "act", false, "2026-06-23T11:00:00Z");
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+});
+
+test("momentum reads the cached summary — the raw log needn't ride along", () => {
+  db.resetAll();
+  db.addTask({ id: "mom", title: "cache-fed" });
+  db.setDone("task", "mom", true, "2026-06-23T12:00:00Z");
+  // getState() carries no completions key at all; momentum still sees the history
+  const m = momentum(db.getState(), { today: "2026-06-23" });
+  assert.equal(m.todayCount, 1);
+  assert.equal(m.streak.current, 1);
+  assert.equal(m.daysActive, 1);
+  assert.equal(m.xp.totalM, 10);
+  assert.equal(m.xp.todayM, 10);
+});
+
+test("activity summary: import / restore / reset invalidate the cache wholesale", () => {
+  db.getActivitySummary(); // make sure it's built, so any staleness would show
+  db.importAll({
+    tasks: [{ id: "imp", title: "imported" }],
+    completions: [
+      { day: "2026-06-20", kind: "task", refId: "imp" },
+      { day: "2026-06-21", kind: "step", refId: "ghost" },
+    ],
+  });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 1 });
+
+  db.replaceCompletions([{ day: "2026-06-19", kind: "task", refId: "imp" }]);
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+
+  db.resetAll();
+  const a = db.getActivitySummary();
+  assert.equal(a.byDay.size, 0);
+  assert.deepEqual(a.totals, { tasks: 0, steps: 0 });
 });

@@ -12,6 +12,12 @@ import {
   longestStreak,
   roadmapProgress,
   activityByDay,
+  summarizeActivity,
+  metersFor,
+  levelThreshold,
+  waypointName,
+  xpSummary,
+  streakMilestones,
 } from "./engine.js";
 
 // minimal state factory
@@ -228,6 +234,97 @@ test("momentum: dailyGoal 0 is a valid rest goal, not coerced to 1", () => {
     today: "2026-06-23",
   });
   assert.equal(bad.dailyGoal, 1);
+});
+
+test("summarizeActivity: per-day per-kind counts plus lifetime totals", () => {
+  const { byDay, totals } = summarizeActivity([
+    done("2026-06-22", "step", "s"),
+    done("2026-06-23", "task", "t"),
+    done("2026-06-23", "step", "s"),
+  ]);
+  assert.deepEqual(byDay.get("2026-06-22"), { tasks: 0, steps: 1 });
+  assert.deepEqual(byDay.get("2026-06-23"), { tasks: 1, steps: 1 });
+  assert.deepEqual(totals, { tasks: 1, steps: 2 });
+});
+
+test("xp: a step is 25 m, a task 10 m, summed over the whole log", () => {
+  assert.equal(metersFor({ tasks: 2, steps: 1 }), 45);
+  assert.equal(metersFor({}), 0);
+  const s = state({
+    completions: [
+      done("2026-06-22", "step", "s1"),
+      done("2026-06-23", "task", "a"),
+      done("2026-06-23", "task", "b"),
+    ],
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  assert.equal(m.xp.totalM, 45);
+  assert.equal(m.xp.todayM, 20); // only today's two tasks, not yesterday's step
+});
+
+test("xp: waypoint thresholds are triangular — early levels come fast", () => {
+  assert.equal(levelThreshold(1), 100);
+  assert.equal(levelThreshold(2), 300);
+  assert.equal(levelThreshold(3), 600);
+  // 90 m: still walking toward the first waypoint
+  const walking = xpSummary({ tasks: 9, steps: 0 });
+  assert.equal(walking.level, 0);
+  assert.equal(walking.name, "Trailhead");
+  assert.equal(walking.levelStartM, 0);
+  assert.equal(walking.nextLevelM, 100);
+  assert.equal(walking.progressPct, 90);
+  // exactly 100 m: waypoint reached, progress resets toward the next
+  const reached = xpSummary({ tasks: 10, steps: 0 });
+  assert.equal(reached.level, 1);
+  assert.equal(reached.name, "First Marker");
+  assert.equal(reached.levelStartM, 100);
+  assert.equal(reached.nextLevelM, 300);
+  assert.equal(reached.progressPct, 0);
+});
+
+test("xp: no completions at all = level 0, at the Trailhead", () => {
+  const m = momentum(state(), { today: "2026-06-23" });
+  assert.deepEqual(m.xp, {
+    level: 0,
+    name: "Trailhead",
+    totalM: 0,
+    levelStartM: 0,
+    nextLevelM: 100,
+    progressPct: 0,
+    todayM: 0,
+  });
+});
+
+test("xp: waypoint names cycle with a lap numeral past the end of the list", () => {
+  assert.equal(waypointName(0), "Trailhead");
+  assert.equal(waypointName(11), "Summit");
+  assert.equal(waypointName(12), "Trailhead II"); // second lap of the trail
+  assert.equal(waypointName(23), "Summit II");
+  assert.equal(waypointName(35), "Summit III");
+});
+
+test("milestones: streak badges judge the longest streak ever, so they stay earned", () => {
+  assert.deepEqual(
+    streakMilestones(0).map((b) => b.earned),
+    [false, false, false, false, false, false, false, false],
+  );
+  // a 3-day run long ago, then nothing — the current streak is dead but the
+  // 3-day badge survives
+  const s = state({
+    completions: [done("2026-05-01"), done("2026-05-02"), done("2026-05-03")],
+    settings: { dailyGoal: 3, streakFreezes: 0 },
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  assert.equal(m.streak.current, 0);
+  assert.equal(m.streak.longest, 3);
+  assert.deepEqual(
+    m.milestones.map((b) => b.days),
+    [3, 7, 14, 30, 60, 100, 180, 365],
+  );
+  assert.deepEqual(
+    m.milestones.filter((b) => b.earned).map((b) => b.days),
+    [3],
+  );
 });
 
 test("momentum: heatmap is exactly heatDays long and ends today", () => {
