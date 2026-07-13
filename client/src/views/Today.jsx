@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Check,
   Plus,
@@ -16,12 +16,14 @@ import {
   CalendarClock,
   Plus as PlusIcon,
   Lightbulb,
+  Footprints,
 } from "lucide-react";
 import { Card, Button, Input, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
 import { uid } from "../lib/uid.js";
 import { parseQuickAdd } from "../lib/quickadd.js";
 import TaskModal from "./TaskModal.jsx";
+import Mascot from "./Mascot.jsx";
 
 // chips that explain why an item is in today's plan
 const REASON = {
@@ -56,7 +58,85 @@ function greeting() {
   return "Good evening";
 }
 
-function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
+// donut of the daily goal — trail green while walking, iris (with a pop) once met.
+// Decorative: the coach line right beside it says the same thing in words.
+function ProgressRing({ done, goal }) {
+  const met = goal > 0 && done >= goal;
+  const pct = Math.min(1, goal ? done / goal : 0);
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      className={`h-16 w-16 shrink-0 ${met ? "pop" : ""}`}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="today-ring" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#059669" />
+          <stop offset="100%" stopColor="#34D399" />
+        </linearGradient>
+      </defs>
+      <circle
+        cx="32"
+        cy="32"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        className="stroke-slate-200 dark:stroke-slate-700"
+      />
+      <circle
+        cx="32"
+        cy="32"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        strokeLinecap="round"
+        stroke={met ? "#8B5CF6" : "url(#today-ring)"}
+        strokeDasharray={`${c * pct} ${c}`}
+        transform="rotate(-90 32 32)"
+        className="transition-[stroke-dasharray] duration-500"
+      />
+      <text
+        x="32"
+        y="37"
+        textAnchor="middle"
+        fontSize="14"
+        fontWeight="700"
+        className={met ? "fill-iris-600 dark:fill-iris-300" : "fill-slate-700 dark:fill-slate-100"}
+      >
+        {done}/{goal}
+      </text>
+    </svg>
+  );
+}
+
+// compact footprints-on-the-trail streak chip — same palette as Momentum's streak
+// card: iris while alive, amber when today would break it, grey before day one
+function StreakChip({ streak }) {
+  if (!streak) {
+    return null;
+  }
+  const n = streak.current;
+  const cls =
+    n === 0
+      ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+      : streak.atRisk
+        ? "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300"
+        : "bg-iris-500/15 text-iris-600 dark:text-iris-300";
+  return (
+    <span
+      className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}
+      aria-label={`${n} day streak${streak.atRisk ? ", at risk — do one thing today" : ""}`}
+    >
+      <Footprints size={12} aria-hidden="true" />
+      {n} day{n === 1 ? "" : "s"}
+      {streak.atRisk ? " · at risk" : ""}
+    </span>
+  );
+}
+
+function Row({ item, onToggle, onEdit, onSkip, showReason }) {
   const isStep = item.kind === "step";
   const done = item.status === "done";
   const reason = showReason
@@ -70,8 +150,9 @@ function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
     : null;
   return (
     <div className="group flex items-start gap-3 px-4 py-3">
+      {/* no busy gate: completions are optimistic and the write queue serializes,
+          so ticking through the plan shouldn't be tap-wait-tap-wait */}
       <button
-        disabled={busy}
         onClick={() => onToggle(item.kind, item.id, !done)}
         aria-label={done ? "Mark not done" : "Mark done"}
         className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition ${
@@ -142,7 +223,7 @@ function Row({ item, onToggle, busy, onEdit, onSkip, showReason }) {
   );
 }
 
-function Section({ title, icon: Icon, items, onToggle, busy, onEdit, tint = "text-slate-400" }) {
+function Section({ title, icon: Icon, items, onToggle, onEdit, tint = "text-slate-400" }) {
   if (!items?.length) {
     return null;
   }
@@ -155,13 +236,7 @@ function Section({ title, icon: Icon, items, onToggle, busy, onEdit, tint = "tex
       </div>
       <Card className="divide-y divide-slate-100 dark:divide-slate-800">
         {items.map((it) => (
-          <Row
-            key={`${it.kind}_${it.id}`}
-            item={it}
-            onToggle={onToggle}
-            busy={busy}
-            onEdit={onEdit}
-          />
+          <Row key={`${it.kind}_${it.id}`} item={it} onToggle={onToggle} onEdit={onEdit} />
         ))}
       </Card>
     </div>
@@ -210,9 +285,12 @@ function PlanCard({ ctx, onEdit }) {
       </div>
 
       {plan.items.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-slate-400">
-          Nothing to plan yet — add a task or line up some roadmap steps.
-        </p>
+        <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+          <Mascot mood="neutral" size={56} />
+          <p className="text-sm text-slate-400">
+            Nothing to plan yet — add a task or line up a few roadmap steps, and the path appears.
+          </p>
+        </div>
       ) : (
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {plan.items.map((it) => (
@@ -220,7 +298,6 @@ function PlanCard({ ctx, onEdit }) {
               key={`${it.kind}_${it.id}`}
               item={it}
               onToggle={complete}
-              busy={busy}
               onEdit={onEdit}
               onSkip={(x) => skipPlanItem(x.kind, x.id, true)}
               showReason
@@ -293,6 +370,7 @@ export default function Today({ ctx }) {
   const [showBrowse, setShowBrowse] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [editTask, setEditTask] = useState(null);
+  const submitting = useRef(false); // blocks a double Enter from adding twice
 
   // open the editor with the full stored task (the queue item is a lean projection)
   const openEdit = (item) => {
@@ -306,14 +384,14 @@ export default function Today({ ctx }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!text.trim()) {
+    if (submitting.current || !text.trim()) {
       return;
     }
     // parse natural language: "read SPI 30m tomorrow" → title + due + estimate + repeat
     const p = parseQuickAdd(text, { today: today.day });
     const title = p.title || text.trim();
-    setText("");
-    await addTask({
+    submitting.current = true;
+    const ok = await addTask({
       id: uid("task"),
       status: "todo",
       title,
@@ -321,6 +399,10 @@ export default function Today({ ctx }) {
       estMin: p.estMin ?? null,
       recurrence: p.recurrence ?? null,
     });
+    submitting.current = false;
+    if (ok !== false) {
+      setText(""); // only on success — a failed add keeps the text for retry
+    }
   };
 
   const goal = momentum?.dailyGoal ?? 3;
@@ -329,30 +411,38 @@ export default function Today({ ctx }) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-          {greeting()}
-          {ctx.state.profile?.name ? `, ${ctx.state.profile.name}` : ""}.
-        </h2>
-        <p className="text-sm text-slate-500">
-          {did >= goal ? (
-            <span className="text-trail-600">Goal met — {did} done today. Keep rolling.</span>
-          ) : (
-            <>
-              You&apos;ve done {did} of {goal} today. Here&apos;s a doable plan.
-            </>
-          )}
-        </p>
-        <div className="mt-2 flex gap-1.5">
-          {Array.from({ length: goal }).map((_, i) => (
-            <span
-              key={i}
-              className={`h-1.5 flex-1 rounded-full ${
-                i < did ? "bg-trail-500" : "bg-slate-200 dark:bg-slate-700"
-              }`}
-            />
-          ))}
+      <div className="flex items-center gap-3">
+        <ProgressRing done={did} goal={goal} />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            {greeting()}
+            {ctx.state.profile?.name ? `, ${ctx.state.profile.name}` : ""}.
+          </h2>
+          <p className="text-sm text-slate-500">
+            {did >= goal ? (
+              <span className="text-iris-600 dark:text-iris-300">
+                Goal met — {did} done today. The path continues tomorrow.
+              </span>
+            ) : (
+              <>
+                You&apos;ve done {did} of {goal} — here&apos;s a doable plan.
+              </>
+            )}
+          </p>
+          <StreakChip streak={momentum?.streak} />
         </div>
+        <Mascot
+          mood={
+            did >= goal
+              ? "celebrate"
+              : momentum?.streak?.atRisk
+                ? "sleepy"
+                : did >= 1
+                  ? "happy"
+                  : "neutral"
+          }
+          size={64}
+        />
       </div>
 
       <Nudges items={ctx.nudges} />
@@ -395,7 +485,6 @@ export default function Today({ ctx }) {
                 icon={CircleDot}
                 items={today.overdue}
                 onToggle={complete}
-                busy={busy}
                 onEdit={openEdit}
                 tint="text-rose-500"
               />
@@ -404,7 +493,6 @@ export default function Today({ ctx }) {
                 icon={CircleDot}
                 items={today.dueToday}
                 onToggle={complete}
-                busy={busy}
                 onEdit={openEdit}
               />
               <Section
@@ -412,7 +500,6 @@ export default function Today({ ctx }) {
                 icon={Sparkles}
                 items={today.suggested}
                 onToggle={complete}
-                busy={busy}
                 tint="text-trail-600"
               />
             </div>
@@ -432,7 +519,7 @@ export default function Today({ ctx }) {
           {showDone ? (
             <Card className="mt-1.5 divide-y divide-slate-100 dark:divide-slate-800">
               {today.doneToday.map((it) => (
-                <Row key={`${it.kind}_${it.id}`} item={it} onToggle={complete} busy={busy} />
+                <Row key={`${it.kind}_${it.id}`} item={it} onToggle={complete} />
               ))}
             </Card>
           ) : null}

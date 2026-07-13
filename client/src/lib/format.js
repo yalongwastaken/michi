@@ -40,6 +40,17 @@ export function shortDate(iso) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
+/** Meters walked on the path, humanized: 420 → "420 m", 1234 → "1.2 km".
+ * Negatives clamp to 0 — the trail only goes forward. */
+export function formatMeters(m) {
+  const n = Math.max(0, Number(m) || 0);
+  if (n < 1000) {
+    return `${n} m`;
+  }
+  const km = n / 1000;
+  return `${km >= 10 ? Math.round(km) : km.toFixed(1).replace(/\.0$/, "")} km`;
+}
+
 /** Friendly minutes label, e.g. 90 → "1h 30m". */
 export function minutes(min) {
   if (min == null || min === "") {

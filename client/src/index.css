@@ -36,6 +36,21 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* the mascot's idle: a slow, gentle breath from the base of the body */
+  .mascot-breathe {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: breathe 2.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(1, 1);
+    }
+    50% {
+      transform: scale(1.012, 1.03);
+    }
+  }
   .pop {
     animation: pop 0.18s ease-out;
   }

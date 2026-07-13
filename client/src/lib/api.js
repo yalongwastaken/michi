@@ -2,10 +2,19 @@
 // with consistent error handling. Same-origin in prod; Vite proxies /api in dev.
 
 async function req(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...opts,
+    });
+  } catch (cause) {
+    // fetch()'s raw "Failed to fetch" means nothing to users — translate it once, here
+    const err = new Error("can't reach the server — check your connection");
+    err.network = true;
+    err.cause = cause;
+    throw err;
+  }
   let body = null;
   try {
     body = await res.json();
@@ -21,6 +30,25 @@ async function req(path, opts = {}) {
   return body;
 }
 
+// raw-text sibling of req() for endpoints that serve markdown, not JSON
+async function reqText(path) {
+  let res;
+  try {
+    res = await fetch(path);
+  } catch (cause) {
+    const err = new Error("can't reach the server — check your connection");
+    err.network = true;
+    err.cause = cause;
+    throw err;
+  }
+  if (!res.ok) {
+    const err = new Error(`request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.text();
+}
+
 export const api = {
   getState: () => req("/api/state"),
   putState: (state) => req("/api/state", { method: "PUT", body: JSON.stringify(state) }),
@@ -28,8 +56,19 @@ export const api = {
   complete: (kind, id, done = true) =>
     req("/api/complete", { method: "POST", body: JSON.stringify({ kind, id, done }) }),
   config: () => req("/api/config"),
-  // the Today screen pulls queue + momentum + plan + nudges + review in one round-trip
-  dashboard: (day) => req(`/api/dashboard${day ? `?day=${day}` : ""}`),
+  // the Today screen pulls queue + momentum + plan + nudges + review in one round-trip;
+  // {budget} carries the day's "one more" boost so the rebuilt plan keeps its size
+  dashboard: (day, { budget } = {}) => {
+    const q = new URLSearchParams();
+    if (day) {
+      q.set("day", day);
+    }
+    if (Number.isFinite(budget)) {
+      q.set("budget", String(budget));
+    }
+    const qs = q.toString();
+    return req(`/api/dashboard${qs ? `?${qs}` : ""}`);
+  },
   plan: (day, { ai = false, budget } = {}) => {
     const q = new URLSearchParams();
     if (day) {
@@ -48,4 +87,10 @@ export const api = {
     req("/api/plan/skip", { method: "POST", body: JSON.stringify({ kind, id, day, on }) }),
   reset: () => req("/api/reset", { method: "POST" }),
   importState: (state) => req("/api/import", { method: "POST", body: JSON.stringify(state) }),
+  // the Claude round-trip: export markdown, preview a pasted reply, apply it
+  exportMd: () => reqText("/api/export.md"),
+  syncPreview: (markdown) =>
+    req("/api/sync/preview", { method: "POST", body: JSON.stringify({ markdown }) }),
+  syncApply: (markdown) =>
+    req("/api/sync/apply", { method: "POST", body: JSON.stringify({ markdown }) }),
 };

@@ -50,8 +50,12 @@ export default function Onboarding({ save, busy }) {
         <div className="flex flex-col items-center text-center">
           <Logo className="h-16 w-16" />
           <h1 className="mt-3 text-2xl font-bold text-slate-800 dark:text-slate-100">Michi</h1>
-          <p className="text-sm text-slate-500">
-            Your learning paths, roadmaps, and projects — turned into what to do today.
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            道 michi — the path.
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Roadmaps, projects, and loose tasks, turned into a few doable steps a day. You walk it;
+            Michi keeps the map.
           </p>
         </div>
 

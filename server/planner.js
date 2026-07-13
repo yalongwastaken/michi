@@ -202,7 +202,7 @@ export function planDay(state, opts = {}) {
 /** One-line, human rationale for the planned day. */
 function summarize(items, roadmapCount, used, budget) {
   if (items.length === 0) {
-    return "Nothing queued — add a task or a roadmap step to get a plan.";
+    return "Nothing queued — add a task or a roadmap step, and I'll lay out the day.";
   }
   const isDue = (i) => i.reason === "due" || i.reason === "overdue";
   const dueN = items.filter(isDue).length;
