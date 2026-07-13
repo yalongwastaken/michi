@@ -18,6 +18,7 @@ import {
   waypointName,
   xpSummary,
   streakMilestones,
+  earnedFreezes,
 } from "./engine.js";
 
 // minimal state factory
@@ -325,6 +326,45 @@ test("milestones: streak badges judge the longest streak ever, so they stay earn
     m.milestones.filter((b) => b.earned).map((b) => b.days),
     [3],
   );
+});
+
+test("earnedFreezes: a bonus at waypoint 4 and another at 8, capped at +2", () => {
+  assert.equal(earnedFreezes(0), 0);
+  assert.equal(earnedFreezes(3), 0);
+  assert.equal(earnedFreezes(4), 1); // first bonus
+  assert.equal(earnedFreezes(7), 1);
+  assert.equal(earnedFreezes(8), 2); // second bonus
+  assert.equal(earnedFreezes(11), 2);
+  assert.equal(earnedFreezes(100), 2); // capped — never more than +2
+});
+
+test("momentum: an earned freeze extends the budget and saves a streak", () => {
+  // 50 steps long ago → 1250 m → level 4 (threshold 1000) → 1 earned freeze;
+  // the configured base is ZERO, so only the earn-back can bridge the gap
+  const grind = Array.from({ length: 50 }, (_, i) => done("2026-06-01", "step", `s${i}`));
+  const recent = [done("2026-06-20"), done("2026-06-22"), done("2026-06-23")]; // gap on the 21st
+  const m = momentum(
+    state({ completions: [...grind, ...recent], settings: { dailyGoal: 3, streakFreezes: 0 } }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(m.xp.level, 4);
+  assert.deepEqual(m.freezes, { base: 0, earned: 1, total: 1, used: 1, left: 0 });
+  assert.equal(m.streak.freezes, 1); // the field the client renders = the TOTAL budget
+  assert.equal(m.streak.freezesUsed, 1);
+  assert.equal(m.streak.current, 3); // 23rd + 22nd + [bridged 21st] + 20th
+  // control: the same recent days without the grind (level 0, nothing earned)
+  const control = momentum(
+    state({ completions: recent, settings: { dailyGoal: 3, streakFreezes: 0 } }),
+    { today: "2026-06-23" },
+  );
+  assert.deepEqual(control.freezes, { base: 0, earned: 0, total: 0, used: 0, left: 0 });
+  assert.equal(control.streak.current, 2); // breaks at the 21st
+});
+
+test("momentum: the freeze breakdown adds up (base + earned = total)", () => {
+  const m = momentum(state({ completions: [done("2026-06-23")] }), { today: "2026-06-23" });
+  assert.deepEqual(m.freezes, { base: 2, earned: 0, total: 2, used: 0, left: 2 });
+  assert.equal(m.streak.freezes, m.freezes.total);
 });
 
 test("momentum: heatmap is exactly heatDays long and ends today", () => {

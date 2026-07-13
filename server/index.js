@@ -16,6 +16,10 @@ import {
   importAll,
   getPlanSkips,
   setPlanSkip,
+  listTrash,
+  restoreTrash,
+  purgeTrash,
+  purgeAllTrash,
   ConflictError,
 } from "./db.js";
 import { buildToday, momentum } from "./engine.js";
@@ -247,6 +251,36 @@ app.post("/api/reset", (_req, res) => {
     res.status(500).json({ error: "reset failed" });
   }
 });
+
+// ── trash: the undo net for deletes-by-absence ────────────────────────────────
+// The full-state PUT snapshots whatever disappears from it (see db.js); these
+// endpoints list, restore, and purge those snapshots. Trash never rides along
+// with state/export — it's a safety net, not model data.
+app.get("/api/trash", (_req, res) => res.json({ items: listTrash() }));
+
+// restore one snapshot → { state, restored: {id, kind, title, remapped} }.
+// Colliding ids (the user recreated the item) are remapped inside restoreTrash.
+app.post("/api/trash/restore", (req, res) => {
+  const { id } = req.body || {};
+  if (!id) {
+    return res.status(400).json({ error: "id is required" });
+  }
+  try {
+    res.json(restoreTrash(id));
+  } catch (e) {
+    console.warn("POST /api/trash/restore failed:", e.message);
+    res.status(404).json({ error: "could not find that trash entry" });
+  }
+});
+
+// purge one entry / empty the whole trash (both permanent)
+app.delete("/api/trash/:id", (req, res) => {
+  if (!purgeTrash(req.params.id)) {
+    return res.status(404).json({ error: "could not find that trash entry" });
+  }
+  res.json({ ok: true });
+});
+app.delete("/api/trash", (_req, res) => res.json({ ok: true, purged: purgeAllTrash() }));
 
 // data export (download the whole dataset) + import (validated full replace).
 // Export is the one read that ships the completions log — a backup must carry

@@ -298,6 +298,211 @@ test("momentum reads the cached summary — the raw log needn't ride along", () 
   assert.equal(m.xp.todayM, 10);
 });
 
+// ── project ↔ roadmap links ─────────────────────────────────────────────────────
+
+test("projects round-trip roadmapId; a roadmap deleted by absence nulls it", () => {
+  db.resetAll();
+  let s = db.putState({
+    roadmaps: [{ id: "lr", title: "Linked Track" }],
+    projects: [{ id: "lp", title: "Build it", roadmapId: "lr" }],
+  });
+  assert.equal(s.projects[0].roadmapId, "lr");
+  // the roadmap vanishes but the project still carries the ref (putState itself
+  // doesn't validate — the endpoint does): replaceAll delivers the SET-NULL the
+  // tasks FK promises but a full reinsert never triggers
+  s = db.putState({ projects: [{ id: "lp", title: "Build it", roadmapId: "lr" }] });
+  assert.equal(s.projects[0].roadmapId, null);
+});
+
+test("validateState names a dangling project→roadmap ref", () => {
+  assert.match(
+    db.validateState({ projects: [{ id: "p", title: "x", roadmapId: "ghost" }] }),
+    /missing roadmap "ghost"/,
+  );
+  assert.equal(
+    db.validateState({
+      roadmaps: [{ id: "r", title: "R" }],
+      projects: [{ id: "p", title: "x", roadmapId: "r" }],
+    }),
+    null,
+  );
+});
+
+// ── trash: soft-delete on the full-state replace ────────────────────────────────
+
+// a small tree to delete from; putState from empty never trashes (nothing vanishes)
+const TREE = {
+  roadmaps: [{ id: "tr-rm", title: "Doomed Track" }],
+  milestones: [
+    { id: "tr-m1", roadmapId: "tr-rm", title: "One", position: 0 },
+    { id: "tr-m2", roadmapId: "tr-rm", title: "Two", position: 1 },
+  ],
+  steps: [
+    { id: "tr-s1", milestoneId: "tr-m1", title: "A", position: 0 },
+    { id: "tr-s2", milestoneId: "tr-m1", title: "B", position: 1 },
+    { id: "tr-s3", milestoneId: "tr-m2", title: "C", position: 0, notes: "keep my notes" },
+  ],
+  projects: [{ id: "tr-p", title: "Doomed Project", roadmapId: "tr-rm" }],
+  tasks: [{ id: "tr-t", title: "Doomed Task", stepId: "tr-s1", projectId: "tr-p" }],
+};
+
+test("full-state PUT trashes a vanished roadmap as ONE subtree snapshot", () => {
+  db.resetAll();
+  db.putState(TREE);
+  db.putState({ ...TREE, roadmaps: [], milestones: [], steps: [], tasks: [] }); // project survives
+  const items = db.listTrash();
+  // the roadmap row carries its milestones + steps — they get no rows of their own
+  assert.deepEqual(items.map((i) => i.kind).sort(), ["roadmap", "task"]);
+  const rm = items.find((i) => i.kind === "roadmap");
+  assert.equal(rm.title, "Doomed Track");
+  assert.equal(rm.counts, "2 milestones · 3 steps");
+  assert.match(rm.id, /^tr_/);
+  assert.ok(rm.deletedAt);
+  const task = items.find((i) => i.kind === "task");
+  assert.equal(task.counts, null); // nothing to count on a lone task
+});
+
+test("milestones/steps removed while their roadmap survives are NOT trashed", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // routine editing: one milestone and its steps gone, the roadmap still there
+  db.putState({
+    ...TREE,
+    milestones: TREE.milestones.slice(0, 1),
+    steps: TREE.steps.slice(0, 2),
+    tasks: [{ id: "tr-t", title: "Doomed Task" }], // drop refs, keep the task
+  });
+  assert.deepEqual(db.listTrash(), []);
+});
+
+test("a vanished project gets its own trash row; importAll never trashes", () => {
+  db.resetAll();
+  db.putState(TREE);
+  db.putState({ ...TREE, projects: [], tasks: [{ id: "tr-t", title: "Doomed Task" }] });
+  assert.deepEqual(
+    db.listTrash().map((i) => i.kind),
+    ["project"],
+  );
+  db.purgeAllTrash();
+  // import is a restore/replace semantic — the whole old model vanishing is the point
+  db.importAll({ tasks: [{ id: "fresh", title: "imported over everything" }] });
+  assert.deepEqual(db.listTrash(), []);
+});
+
+test("restoreTrash: the subtree comes back under its original ids", () => {
+  db.resetAll();
+  db.putState(TREE);
+  const before = db.getState().rev;
+  db.putState({ ...TREE, roadmaps: [], milestones: [], steps: [], tasks: [] });
+  const entry = db.listTrash().find((i) => i.kind === "roadmap");
+  const { state, restored } = db.restoreTrash(entry.id);
+  assert.deepEqual(restored, {
+    id: entry.id,
+    kind: "roadmap",
+    title: "Doomed Track",
+    remapped: false,
+  });
+  assert.deepEqual(
+    state.roadmaps.map((r) => r.id),
+    ["tr-rm"],
+  );
+  assert.equal(state.milestones.length, 2);
+  assert.equal(state.steps.length, 3);
+  assert.equal(state.steps.find((s) => s.id === "tr-s3").notes, "keep my notes");
+  assert.ok(state.rev > before); // restore is a real write — the rev moved
+  // the restored row left the trash (only the task row remains)
+  assert.deepEqual(
+    db.listTrash().map((i) => i.kind),
+    ["task"],
+  );
+  assert.throws(() => db.restoreTrash(entry.id), /not found/); // and can't restore twice
+});
+
+test("restoreTrash: recreated ids force a full remap — restores never collide", () => {
+  db.resetAll();
+  db.putState(TREE);
+  db.putState({ ...TREE, roadmaps: [], milestones: [], steps: [], tasks: [] });
+  // the user rebuilt a roadmap under the SAME id before restoring
+  db.putState({
+    ...TREE,
+    roadmaps: [{ id: "tr-rm", title: "Rebuilt" }],
+    milestones: [],
+    steps: [],
+    tasks: [],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "roadmap");
+  const { state, restored } = db.restoreTrash(entry.id);
+  assert.equal(restored.remapped, true);
+  assert.equal(state.roadmaps.length, 2); // the rebuild AND the restore coexist
+  const back = state.roadmaps.find((r) => r.title === "Doomed Track");
+  assert.notEqual(back.id, "tr-rm");
+  assert.match(back.id, /^rm_/);
+  // the whole subtree was remapped consistently, not just the colliding id
+  const ms = state.milestones.filter((m) => m.roadmapId === back.id);
+  assert.equal(ms.length, 2);
+  for (const m of ms) {
+    assert.match(m.id, /^ms_/);
+  }
+  const msIds = new Set(ms.map((m) => m.id));
+  assert.equal(state.steps.filter((s) => msIds.has(s.milestoneId)).length, 3);
+});
+
+test("restoreTrash: outward refs that no longer resolve are nulled", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // the task goes first (trashed with live stepId/projectId in its snapshot)…
+  db.putState({ ...TREE, tasks: [] });
+  // …then its step's roadmap and its project are deleted too
+  db.putState({ projects: [], roadmaps: [], milestones: [], steps: [], tasks: [] });
+  const entry = db.listTrash().find((i) => i.kind === "task");
+  const { state } = db.restoreTrash(entry.id);
+  const t = state.tasks.find((x) => x.title === "Doomed Task");
+  assert.equal(t.stepId, null); // a dangling ref would violate the FK
+  assert.equal(t.projectId, null);
+});
+
+test("trash retention: capped at the newest 50, and old rows age out", () => {
+  db.resetAll();
+  const tasks = Array.from({ length: 55 }, (_, i) => ({
+    id: `ret${i}`,
+    title: `ret ${i}`,
+    position: i,
+  }));
+  db.putState({ tasks });
+  db.putState({ tasks: [] }); // 55 deletes in one diff → retention trims to 50
+  const items = db.listTrash();
+  assert.equal(items.length, 50);
+  const titles = new Set(items.map((i) => i.title));
+  for (let i = 0; i < 5; i++) {
+    assert.ok(!titles.has(`ret ${i}`), `oldest row "ret ${i}" should have been dropped`);
+  }
+  assert.ok(titles.has("ret 54"));
+  // a row past the 30-day window is purged by the next insert
+  const stale = new Date(Date.now() - 31 * 86400000).toISOString();
+  db.db
+    .prepare("INSERT INTO trash(id, kind, title, payload, deleted_at) VALUES(?, ?, ?, ?, ?)")
+    .run("tr_stale", "task", "stale", "{}", stale);
+  db.putState({ tasks: [{ id: "one-more", title: "one more" }] });
+  db.putState({ tasks: [] }); // triggers an insert → retention runs
+  assert.ok(!db.listTrash().some((i) => i.id === "tr_stale"));
+});
+
+test("purgeTrash / purgeAllTrash / reset all empty the trash for good", () => {
+  db.resetAll();
+  db.putState({ tasks: [{ id: "px", title: "purge me" }] });
+  db.putState({ tasks: [] });
+  const [item] = db.listTrash();
+  assert.equal(db.purgeTrash(item.id), true);
+  assert.equal(db.purgeTrash(item.id), false); // already gone
+  db.putState({ tasks: [{ id: "py", title: "and me" }] });
+  db.putState({ tasks: [] });
+  assert.equal(db.purgeAllTrash(), 1);
+  db.putState({ tasks: [{ id: "pz", title: "me too" }] });
+  db.putState({ tasks: [] });
+  db.resetAll(); // "erase everything" leaves no residue in the trash either
+  assert.deepEqual(db.listTrash(), []);
+});
+
 test("activity summary: import / restore / reset invalidate the cache wholesale", () => {
   db.getActivitySummary(); // make sure it's built, so any staleness would show
   db.importAll({

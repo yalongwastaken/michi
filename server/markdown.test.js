@@ -40,6 +40,7 @@ const SEED = {
       status: "done",
       position: 0,
       resourceUrl: "https://x.dev/gpio",
+      notes: "mind the pull-up on pin 4",
       doneAt: "2026-07-01T10:00:00.000Z",
     },
     { id: "st2", milestoneId: "ms1", title: "UART", status: "todo", position: 1 },
@@ -53,6 +54,7 @@ const SEED = {
       repoUrl: "https://github.com/x/blinky",
       summary: "An LED that blinks",
       position: 0,
+      roadmapId: "rm1",
     },
   ],
   tasks: [
@@ -66,6 +68,7 @@ const SEED = {
       projectId: "pj1",
       recurrence: "daily",
       position: 0,
+      notes: "left off at §3\nre-read the timing diagram",
     },
   ],
   completions: [
@@ -87,14 +90,18 @@ test("export renders anchors, attribute tokens, and the prompt header", () => {
   assert.match(out, /## Roadmap: Embedded \{#rm1\}/);
   assert.match(out, /target: 2026-09-01 · 50% done/);
   assert.match(out, /### Milestone: Basics \{#ms1\}/);
-  assert.match(out, /- \[x\] GPIO \{#st1\} ~45m https:\/\/x\.dev\/gpio/);
-  assert.match(out, /- \[ \] UART \{#st2\} ~45m/);
-  assert.match(out, /## Project: Blinky \{#pj1\}/);
-  assert.match(out, /status: active · repo: https:\/\/github\.com\/x\/blinky/);
-  assert.match(out, /An LED that blinks/);
   assert.match(
     out,
-    /- \[~\] Read datasheet \{#t1\} due:2026-07-14 ~30m step:#st1 project:#pj1 every:daily/,
+    /- \[x\] GPIO \{#st1\} ~45m https:\/\/x\.dev\/gpio\n {2}> mind the pull-up on pin 4/,
+  );
+  assert.match(out, /- \[ \] UART \{#st2\} ~45m/);
+  assert.match(out, /## Project: Blinky \{#pj1\}/);
+  assert.match(out, /status: active · repo: https:\/\/github\.com\/x\/blinky · roadmap:#rm1/);
+  assert.match(out, /An LED that blinks/);
+  // multi-line notes: one `> ` line per notes line, right under the item
+  assert.match(
+    out,
+    /- \[~\] Read datasheet \{#t1\} due:2026-07-14 ~30m step:#st1 project:#pj1 every:daily\n {2}> left off at §3\n {2}> re-read the timing diagram/,
   );
   // archived roadmap: marker present, its tree omitted
   assert.match(out, /## Roadmap: Old Track \{#rm2\}\narchived/);
@@ -566,4 +573,107 @@ test("items omitted from the doc are never deleted", () => {
   assert.equal(result.state.steps.length, 3);
   assert.ok(result.state.tasks.some((t) => t.id === "t1"));
   assert.equal(result.state.tasks.length, 2);
+});
+
+test("`> ` lines attach to the list item above as notes; blockquotes elsewhere are skipped", () => {
+  const parsed = md.parseSync(
+    [
+      "> orphan at the top of the doc",
+      "## Roadmap: R",
+      "### Milestone: M",
+      "- [ ] step with a note",
+      "> check the errata first",
+      "## Tasks",
+      "- [ ] task with a long note",
+      "> first line",
+      "> second line",
+      "- [ ] task without one",
+    ].join("\n"),
+  );
+  assert.equal(parsed.steps[0].notes, "check the errata first");
+  assert.equal(parsed.tasks[0].notes, "first line\nsecond line");
+  assert.equal(parsed.tasks[1].notes, undefined); // absent, not "" — presence matters
+  assert.ok(parsed.warnings.some((w) => /skipped line: "> orphan/.test(w)));
+});
+
+test("a blank line closes the notes window — and a project blockquote isn't a summary", () => {
+  const late = md.parseSync("## Tasks\n- [ ] T\n\n> too late to attach\n");
+  assert.equal(late.tasks[0].notes, undefined);
+  assert.ok(late.warnings.some((w) => /skipped line: "> too late/.test(w)));
+  // under a project heading a blockquote is skipped, never swallowed as summary
+  const proj = md.parseSync("## Project: P\n> not a summary\n");
+  assert.equal(proj.projects[0].summary, undefined);
+  assert.ok(proj.warnings.some((w) => /skipped line: "> not a summary/.test(w)));
+});
+
+test("notes diff only when present in the doc, like every other field", () => {
+  db.importAll(SEED);
+  const state = db.getFullState();
+  // no blockquote on the line → t1's existing notes stay untouched
+  const absent = md.planSync(md.parseSync("## Tasks\n- [~] Read datasheet {#t1}\n"), state);
+  assert.deepEqual(absent.updates, []);
+  // a blockquote present → the whole notes value is compared and updated
+  const changed = md.planSync(
+    md.parseSync("## Tasks\n- [~] Read datasheet {#t1}\n> switched to the v2 datasheet\n"),
+    state,
+  );
+  assert.equal(changed.updates.length, 1);
+  assert.deepEqual(changed.updates[0].changes.notes, {
+    from: "left off at §3\nre-read the timing diagram",
+    to: "switched to the v2 datasheet",
+  });
+  // …and a new item lands with its note attached
+  const created = md.planSync(md.parseSync("## Tasks\n- [ ] New task\n> with a note\n"), state);
+  assert.equal(created.creates.tasks[0].notes, "with a note");
+});
+
+test("notes round-trip exactly: export → parse → plan = zero changes (multi-line incl.)", () => {
+  db.importAll(SEED); // st1 carries single-line notes, t1 multi-line ones
+  const state = db.getFullState();
+  const parsed = md.parseSync(md.renderExport(state, "2026-07-13"));
+  assert.deepEqual(parsed.warnings, []);
+  assert.equal(parsed.tasks[0].notes, "left off at §3\nre-read the timing diagram");
+  const plan = md.planSync(parsed, state);
+  assert.deepEqual(plan.warnings, []);
+  assert.deepEqual(plan.updates, []);
+  for (const items of Object.values(plan.creates)) {
+    assert.deepEqual(items, []);
+  }
+});
+
+test("project roadmap link: parses, diffs, and resolves same-doc anchors", () => {
+  db.importAll(SEED);
+  const state = db.getFullState();
+  // moving the link to another existing roadmap is a plain field update
+  const moved = md.planSync(
+    md.parseSync("## Project: Blinky {#pj1}\nstatus: active · roadmap:#rm2\n"),
+    state,
+  );
+  assert.equal(moved.updates.length, 1);
+  assert.deepEqual(moved.updates[0].changes.roadmapId, { from: "rm1", to: "rm2" });
+  // an unknown ref drops the link with a warning instead of failing validation later
+  const broken = md.planSync(
+    md.parseSync("## Project: Blinky {#pj1}\nstatus: active · roadmap:#nowhere\n"),
+    state,
+  );
+  assert.deepEqual(broken.updates, []); // link dropped → nothing left to change
+  assert.ok(broken.warnings.some((w) => /project "Blinky" references unknown roadmap/.test(w)));
+  // a new project can link a roadmap created in the same doc via its doc anchor
+  const plan = md.planSync(
+    md.parseSync(
+      ["## Roadmap: Fresh Track {#tmp_rm}", "## Project: Fresh App", "roadmap:#tmp_rm"].join("\n"),
+    ),
+    state,
+  );
+  assert.equal(plan.creates.projects[0].roadmapId, plan.creates.roadmaps[0].id);
+});
+
+test("project roadmap link applies end-to-end and stays idempotent", () => {
+  db.importAll(SEED);
+  const doc = "## Project: Blinky {#pj1}\nstatus: active · roadmap:#rm2\n";
+  const result = md.applySync(md.parseSync(doc));
+  assert.equal(result.state.projects.find((p) => p.id === "pj1").roadmapId, "rm2");
+  // re-applying the same reply changes nothing
+  const again = md.planSync(md.parseSync(doc), result.state);
+  assert.deepEqual(again.updates, []);
 });
