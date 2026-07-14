@@ -36,13 +36,13 @@ const META = {
   idea: {
     label: "Ideas",
     icon: Lightbulb,
-    tint: "text-iris-600",
-    chip: "bg-iris-50 text-iris-600 dark:bg-iris-950/40",
+    tint: "text-iris-600 dark:text-iris-400",
+    chip: "bg-iris-50 text-iris-600 dark:bg-iris-950/40 dark:text-iris-300",
   },
   active: {
     label: "In progress",
     icon: Circle,
-    tint: "text-trail-600",
+    tint: "text-trail-700 dark:text-trail-400",
     chip: "bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300",
   },
   shipped: {

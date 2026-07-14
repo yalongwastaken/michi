@@ -1,7 +1,7 @@
 // tree.js — compose the flat roadmap/milestone/step arrays into a nested tree the
 // Roadmaps view can render, plus small progress helpers. Pure functions.
 
-/** Build [{...roadmap, milestones:[{...m, steps:[...]}], done, total, pct}]. */
+/** Build [{...roadmap, milestones:[{...m, steps:[...]}], done, total, pct, complete}]. */
 export function roadmapTree(state) {
   const milestones = state.milestones || [];
   const steps = state.steps || [];
@@ -18,7 +18,16 @@ export function roadmapTree(state) {
       });
     const total = ms.reduce((a, m) => a + m.total, 0);
     const done = ms.reduce((a, m) => a + m.done, 0);
-    return { ...r, milestones: ms, done, total, pct: total ? Math.round((done / total) * 100) : 0 };
+    return {
+      ...r,
+      milestones: ms,
+      done,
+      total,
+      pct: total ? Math.round((done / total) * 100) : 0,
+      // pct is display math (Math.round calls 199/200 "100") — anything that means
+      // "actually finished" (the daruma's eye, the ritual) must key on this instead
+      complete: total > 0 && done === total,
+    };
   });
 }
 

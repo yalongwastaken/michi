@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Check,
@@ -35,6 +35,9 @@ import { parseRoadmap } from "../lib/parse.js";
 import { shortDate } from "../lib/format.js";
 import { focusMainHeading } from "../lib/a11y.js";
 import { uid } from "../lib/uid.js";
+import { checkRituals, confettiBurst } from "../lib/celebrate.js";
+import Mascot from "./Mascot.jsx";
+import Celebration from "./Celebration.jsx";
 
 const STEP_MINUTE_OPTS = [
   ["", "default"],
@@ -44,7 +47,7 @@ const STEP_MINUTE_OPTS = [
   ["60", "1 hour"],
 ];
 
-const COLORS = ["#10B981", "#0EA5E9", "#8B5CF6", "#F59E0B", "#F43F5E", "#64748B"];
+const COLORS = ["#F25C05", "#0EA5E9", "#5B67B7", "#F59E0B", "#F43F5E", "#64748B"];
 
 function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, canDown, busy }) {
   const done = step.status === "done";
@@ -107,7 +110,9 @@ function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, c
         >
           {step.title}
           {doing ? (
-            <span className="ml-2 text-xs font-medium text-iris-500">in progress</span>
+            <span className="ml-2 text-xs font-medium text-iris-500 dark:text-iris-300">
+              in progress
+            </span>
           ) : null}
         </button>
         {step.resourceUrl ? (
@@ -115,7 +120,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, c
             href={step.resourceUrl}
             target="_blank"
             rel="noreferrer"
-            className="shrink-0 p-1 text-slate-400 hover:text-trail-600"
+            className="shrink-0 p-1 text-slate-400 hover:text-trail-700 dark:hover:text-trail-400"
             aria-label="Open resource"
           >
             <ExternalLink size={14} />
@@ -128,7 +133,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, c
           aria-expanded={noteOpen}
           className={`shrink-0 p-1 transition ${
             hasNote
-              ? "text-iris-500 hover:text-iris-600"
+              ? "text-iris-500 hover:text-iris-600 dark:text-iris-300 dark:hover:text-iris-200"
               : "text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400"
           }`}
         >
@@ -176,7 +181,7 @@ function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, c
                   setDraft(step.notes || "");
                   setEditing(true);
                 }}
-                className="shrink-0 text-xs font-medium text-trail-600 hover:underline dark:text-trail-400"
+                className="shrink-0 text-xs font-medium text-trail-700 hover:underline dark:text-trail-400"
               >
                 Edit
               </button>
@@ -218,7 +223,7 @@ function AddInline({ placeholder, onAdd, busy }) {
       <button
         type="submit"
         disabled={busy || !v.trim()}
-        className="rounded-lg p-1.5 text-trail-600 hover:bg-trail-50 disabled:opacity-40 dark:hover:bg-slate-700"
+        className="rounded-lg p-1.5 text-trail-700 hover:bg-trail-50 disabled:opacity-40 dark:text-trail-400 dark:hover:bg-slate-700"
         aria-label="Add"
       >
         <Plus size={16} />
@@ -246,10 +251,286 @@ function deadlineInfo(rm, today) {
   return { daysLeft, remaining, perDay, overdue, done: remaining <= 0 };
 }
 
+// ── winding path view ──────────────────────────────────────────────────────────
+// The roadmap as a trail: steps climb bottom→top in walk order, so the frontier
+// (first unfinished step) is where you're standing and everything done sits below.
+// Geometry: rows (gates + steps) sit at y = H − pad − i·rowH; x alternates across
+// the center via sin (x = CX + AMP·sin(π(i+0.5)) → ±AMP), and one Catmull-Rom
+// curve threads every point, so the trail is a smooth snake. The nodes and labels
+// are real HTML buttons positioned over a purely decorative SVG spine — labels
+// live in the outer margins (|x| ≥ AMP + node radius), so they can never sit on
+// the curve. The svg stretches with the container (preserveAspectRatio="none");
+// non-scaling strokes keep the trail's weight constant.
+const PATH_W = 400; // design width — the container caps at this and scales under it
+const PATH_ROW = 64;
+const PATH_AMP = 62;
+const PATH_CX = PATH_W / 2;
+const PATH_PAD_TOP = 56; // headroom for the companion standing on a frontier at the top
+const PATH_PAD_BOT = 26;
+const VIEW_KEY = "michi.roadmapView"; // per-device preference, shared by every roadmap
+
+function readView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "path";
+  } catch {
+    return "path"; // no storage (private mode, tests) — the default stands
+  }
+}
+
+function storeView(v) {
+  try {
+    localStorage.setItem(VIEW_KEY, v);
+  } catch {
+    /* per-device nicety only — losing it costs one extra tap */
+  }
+}
+
+/**
+ * One smooth cubic path through every point (Catmull-Rom → bezier). `upTo` caps
+ * the number of segments — crucially the capped path reuses the FULL curve's
+ * control points, so the walked overdraw sits exactly on the grey spine instead
+ * of re-fitting a subtly different curve to the sliced points.
+ */
+function smoothPath(pts, upTo = Infinity) {
+  const n = Math.min(upTo, pts.length - 1);
+  if (n < 1) {
+    return "";
+  }
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${p2[0]} ${p2[1]}`;
+  }
+  return d;
+}
+
+// a two-post torii gate — persimmon once its milestone is fully walked
+function ToriiGate({ complete }) {
+  return (
+    <svg
+      viewBox="0 0 26 20"
+      width="24"
+      height="19"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      className={complete ? "text-trail-500" : "text-slate-400 dark:text-slate-500"}
+    >
+      <path d="M2 4.5 Q13 1.5 24 4.5" strokeWidth="2.4" />
+      <path d="M5 9.5 h16" strokeWidth="1.8" />
+      <path d="M7.5 5.5 V18" strokeWidth="2.2" />
+      <path d="M18.5 5.5 V18" strokeWidth="2.2" />
+    </svg>
+  );
+}
+
+function PathView({ rm, species, onDone, onDoing }) {
+  // flatten to rows in walk order: each milestone opens with its gate
+  const rows = [];
+  for (const m of rm.milestones) {
+    rows.push({ type: "gate", m });
+    for (const st of m.steps) {
+      rows.push({ type: "step", st });
+    }
+  }
+  const H = PATH_PAD_TOP + Math.max(0, rows.length - 1) * PATH_ROW + PATH_PAD_BOT;
+  const pts = rows.map((_, i) => [
+    PATH_CX + PATH_AMP * Math.sin(Math.PI * (i + 0.5)), // strict left/right alternation
+    H - PATH_PAD_BOT - i * PATH_ROW,
+  ]);
+
+  // the frontier: first step not yet done — where the companion stands. With every
+  // step walked there is no frontier, so the companion stands at the TOP node
+  // instead, celebrating (a static mood — no confetti replay for old news)
+  const frontier = rows.findIndex((r) => r.type === "step" && r.st.status !== "done");
+  const walked = rows.length > 0 && frontier === -1;
+  const standAt = walked ? rows.length - 1 : frontier;
+  // the walked segment: contiguous done steps from the trailhead (gates ride along)
+  let doneEnd = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type !== "step") {
+      continue;
+    }
+    if (rows[i].st.status !== "done") {
+      break;
+    }
+    doneEnd = i;
+  }
+
+  const pct = (x) => `${(x / PATH_W) * 100}%`;
+  // label zones end a fixed 24px short of the node's center — a %-based gap would
+  // shrink with the container and let text slip under the frontier node when narrow
+  const labelStyle = (x, y) =>
+    x < PATH_CX
+      ? { left: 0, width: `calc(${pct(x)} - 24px)`, top: y, transform: "translateY(-50%)" }
+      : {
+          right: 0,
+          width: `calc(${pct(PATH_W - x)} - 24px)`,
+          top: y,
+          transform: "translateY(-50%)",
+        };
+
+  return (
+    <div className="relative mx-auto w-full max-w-[400px]" style={{ height: H }}>
+      <svg
+        viewBox={`0 0 ${PATH_W} ${H}`}
+        width="100%"
+        height={H}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        focusable="false"
+        className="absolute inset-0"
+      >
+        <path
+          d={smoothPath(pts)}
+          fill="none"
+          strokeWidth="5"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+          className="stroke-sand-300 dark:stroke-slate-700"
+        />
+        {doneEnd > 0 ? (
+          <path
+            d={smoothPath(pts, doneEnd)}
+            fill="none"
+            strokeWidth="5"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+            className="stroke-trail-500"
+          />
+        ) : null}
+      </svg>
+
+      {rows.map((row, i) => {
+        const [x, y] = pts[i];
+        const right = x >= PATH_CX; // node right of center → its label sits in the right margin
+        if (row.type === "gate") {
+          const m = row.m;
+          const complete = m.total > 0 && m.done === m.total;
+          return (
+            <div key={`g_${m.id}`}>
+              <div
+                className="absolute flex h-8 w-8 items-center justify-center"
+                style={{ left: pct(x), top: y, transform: "translate(-50%,-50%)" }}
+              >
+                <ToriiGate complete={complete} />
+              </div>
+              <div className="absolute" style={labelStyle(x, y)}>
+                <p
+                  className={`line-clamp-2 text-xs font-semibold leading-tight ${
+                    right ? "text-left" : "text-right"
+                  } ${
+                    complete
+                      ? "text-trail-700 dark:text-trail-400"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  {m.title}
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        const st = row.st;
+        const done = st.status === "done";
+        const doing = st.status === "doing";
+        const isFrontier = i === frontier;
+        const d = isFrontier ? 42 : 34; // the visual circle — r≈21 frontier, r≈17 elsewhere
+        const nodeCls = done
+          ? "bg-trail-500 text-white"
+          : doing
+            ? "bg-trail-100 ring-2 ring-trail-500 dark:bg-trail-950"
+            : "bg-white ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700";
+        return (
+          <div key={st.id}>
+            {/* the BUTTON is the tap target (≥44px square); the circle inside stays
+                the visual size, with the hover/focus ring riding the circle */}
+            <button
+              onClick={() => onDone(st, !done)}
+              aria-label={`${st.title} — ${done ? "done" : doing ? "in progress" : "to do"}`}
+              className="group absolute flex items-center justify-center rounded-full focus:outline-none"
+              style={{
+                left: pct(x),
+                top: y,
+                width: Math.max(d, 44),
+                height: Math.max(d, 44),
+                transform: "translate(-50%,-50%)",
+              }}
+            >
+              <span
+                className={`flex items-center justify-center rounded-full transition group-hover:ring-2 group-hover:ring-trail-400 group-focus-visible:ring-2 group-focus-visible:ring-trail-400 ${nodeCls} ${
+                  isFrontier ? "shadow-md" : "shadow-sm"
+                }`}
+                style={{ width: d, height: d }}
+              >
+                {done ? <Check size={16} strokeWidth={3} /> : null}
+              </span>
+            </button>
+            <div className="absolute" style={labelStyle(x, y)}>
+              {/* same behaviors as list mode: node = toggle done, title = toggle doing */}
+              <button
+                disabled={done}
+                onClick={() => onDoing(st, !doing)}
+                className={`w-full text-[11px] leading-tight ${right ? "text-left" : "text-right"} ${
+                  done ? "text-slate-400 line-through" : "text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                <span className="line-clamp-2">
+                  {st.title}
+                  {st.notes && st.notes.trim() ? (
+                    <StickyNote
+                      size={11}
+                      aria-label="has note"
+                      className="ml-1 inline text-iris-500 dark:text-iris-300"
+                    />
+                  ) : null}
+                </span>
+                {doing ? (
+                  <span className="block text-[10px] font-medium text-iris-500 dark:text-iris-300">
+                    in progress
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* the companion, standing on the frontier — or, with the whole trail walked,
+          celebrating on the top node (static: the mood alone, no confetti burst) */}
+      {standAt >= 0 ? (
+        <div
+          className="pointer-events-none absolute"
+          style={{
+            left: pct(pts[standAt][0]),
+            top: pts[standAt][1] - (walked ? 34 : 42) / 2 + 7,
+            transform: "translate(-50%,-100%)",
+          }}
+        >
+          <Mascot species={species} mood={walked ? "celebrate" : "idle"} size={44} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function RoadmapCard({ rm, ctx, onEdit }) {
   const { save, complete, busy } = ctx;
-  const [open, setOpen] = useState(rm.pct < 100 && rm.total > 0);
+  const [open, setOpen] = useState(!rm.complete && rm.total > 0);
+  const [view, setView] = useState(readView);
   const dl = deadlineInfo(rm, ctx.day);
+  const pickView = (v) => {
+    setView(v);
+    storeView(v);
+  };
 
   // step done toggle uses the lean endpoint (stamps done_at server-side)
   const setDone = (step, done) => complete("step", step.id, done);
@@ -338,7 +619,7 @@ function RoadmapCard({ rm, ctx, onEdit }) {
       >
         <span
           className="h-9 w-1.5 shrink-0 rounded-full"
-          style={{ background: rm.color || "#10B981" }}
+          style={{ background: rm.color || "#F25C05" }}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -363,6 +644,17 @@ function RoadmapCard({ rm, ctx, onEdit }) {
             </p>
           ) : null}
         </div>
+        {rm.targetDate ? (
+          // the goal object: a daruma keeps its blank eye until the roadmap is walked
+          <span
+            role="img"
+            aria-label={`finish by ${shortDate(rm.targetDate)} — the daruma earns its second eye at 100%`}
+            title={`finish by ${shortDate(rm.targetDate)} — the daruma earns its second eye at 100%`}
+            className="shrink-0"
+          >
+            <Mascot species="daruma" size={34} eyesFilled={rm.complete} />
+          </span>
+        ) : null}
         {open ? (
           <ChevronDown size={18} className="text-slate-400" />
         ) : (
@@ -377,7 +669,7 @@ function RoadmapCard({ rm, ctx, onEdit }) {
               href={rm.sourceUrl}
               target="_blank"
               rel="noreferrer"
-              className="mb-2 inline-flex items-center gap-1 text-xs text-trail-600 hover:underline"
+              className="mb-2 inline-flex items-center gap-1 text-xs text-trail-700 hover:underline dark:text-trail-400"
             >
               <ExternalLink size={12} /> source roadmap
             </a>
@@ -388,49 +680,89 @@ function RoadmapCard({ rm, ctx, onEdit }) {
               No milestones yet — add your first checkpoint below.
             </p>
           ) : (
-            <div className="space-y-3">
-              {rm.milestones.map((m, mi) => (
-                <div key={m.id}>
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="min-w-0 truncate text-sm font-semibold text-slate-600 dark:text-slate-300">
-                      {m.title}
-                    </h4>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <span className="text-xs text-slate-400">
-                        {m.done}/{m.total}
-                      </span>
-                      <MoveButtons
-                        canUp={mi > 0}
-                        canDown={mi < rm.milestones.length - 1}
-                        onMove={(dir) => moveMilestone(m.id, dir)}
+            <>
+              {/* a stepless roadmap has no trail to draw (and list mode holds the
+                  add-step forms), so the toggle waits for the first step */}
+              {rm.total > 0 ? (
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div
+                    role="group"
+                    aria-label="Roadmap view"
+                    className="inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+                  >
+                    {["path", "list"].map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => pickView(v)}
+                        aria-pressed={view === v}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                          view === v
+                            ? "bg-white text-trail-700 shadow-sm dark:bg-slate-700 dark:text-trail-300"
+                            : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                  {view === "path" ? (
+                    <span className="text-[11px] text-slate-400">reorder in list view</span>
+                  ) : null}
+                </div>
+              ) : null}
+              {view === "path" && rm.total > 0 ? (
+                <PathView
+                  rm={rm}
+                  species={ctx.state.profile?.mascot}
+                  onDone={setDone}
+                  onDoing={setDoing}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {rm.milestones.map((m, mi) => (
+                    <div key={m.id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="min-w-0 truncate text-sm font-semibold text-slate-600 dark:text-slate-300">
+                          {m.title}
+                        </h4>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="text-xs text-slate-400">
+                            {m.done}/{m.total}
+                          </span>
+                          <MoveButtons
+                            canUp={mi > 0}
+                            canDown={mi < rm.milestones.length - 1}
+                            onMove={(dir) => moveMilestone(m.id, dir)}
+                            busy={busy}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-0.5 divide-y divide-slate-100 dark:divide-slate-800">
+                        {m.steps.map((st, si) => (
+                          <StepRow
+                            key={st.id}
+                            step={st}
+                            onDone={setDone}
+                            onDoing={setDoing}
+                            onDelete={delStep}
+                            onSaveNote={saveNote}
+                            onMove={(dir) => moveStep(m.id, st.id, dir)}
+                            canUp={si > 0}
+                            canDown={si < m.steps.length - 1}
+                            busy={busy}
+                          />
+                        ))}
+                      </div>
+                      <AddInline
+                        placeholder="Add a step…"
+                        onAdd={(t) => addStep(m.id, t)}
                         busy={busy}
                       />
                     </div>
-                  </div>
-                  <div className="mt-0.5 divide-y divide-slate-100 dark:divide-slate-800">
-                    {m.steps.map((st, si) => (
-                      <StepRow
-                        key={st.id}
-                        step={st}
-                        onDone={setDone}
-                        onDoing={setDoing}
-                        onDelete={delStep}
-                        onSaveNote={saveNote}
-                        onMove={(dir) => moveStep(m.id, st.id, dir)}
-                        canUp={si > 0}
-                        canDown={si < m.steps.length - 1}
-                        busy={busy}
-                      />
-                    ))}
-                  </div>
-                  <AddInline
-                    placeholder="Add a step…"
-                    onAdd={(t) => addStep(m.id, t)}
-                    busy={busy}
-                  />
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
 
           <div className="mt-3 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700">
@@ -679,7 +1011,8 @@ function ImportRoadmapModal({ ctx, onClose }) {
               <ul className="mt-1 space-y-0.5 text-slate-500">
                 {parsed.milestones.map((m, i) => (
                   <li key={i}>
-                    <span className="text-trail-600">{m.title}</span> — {m.steps.length} steps
+                    <span className="text-trail-700 dark:text-trail-400">{m.title}</span> —{" "}
+                    {m.steps.length} steps
                   </li>
                 ))}
               </ul>
@@ -699,7 +1032,19 @@ export default function Roadmaps({ ctx }) {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [editRm, setEditRm] = useState(null);
+  const [ritual, setRitual] = useState(null); // the daruma's second-eye toast
   const tree = roadmapTree(ctx.state);
+
+  // the ritual: a dated roadmap crossing to 100% opens the daruma's second eye —
+  // once ever per roadmap (lib/celebrate.js keeps the ledger in localStorage)
+  const { state } = ctx;
+  useEffect(() => {
+    const ev = checkRituals(roadmapTree(state));
+    if (ev) {
+      confettiBurst();
+      setRitual(ev);
+    }
+  }, [state]);
   // find the latest version of the roadmap being edited (tree carries it)
   const editing = editRm ? tree.find((r) => r.id === editRm) : null;
   const active = tree.filter((r) => !r.archived);
@@ -760,6 +1105,15 @@ export default function Roadmaps({ ctx }) {
       {adding && <RoadmapModal ctx={ctx} onClose={() => setAdding(false)} />}
       {editing && <RoadmapModal ctx={ctx} roadmap={editing} onClose={() => setEditRm(null)} />}
       {importing && <ImportRoadmapModal ctx={ctx} onClose={() => setImporting(false)} />}
+      {ritual ? (
+        // offset below App's celebration toast (top-4) so simultaneous fires stack
+        <Celebration
+          event={ritual}
+          species={ctx.state.profile?.mascot}
+          offset="top-20"
+          onClose={() => setRitual(null)}
+        />
+      ) : null}
     </div>
   );
 }

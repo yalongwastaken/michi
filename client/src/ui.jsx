@@ -231,7 +231,7 @@ export function EmptyState({ icon: Icon, title, children, action }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 px-6 py-12 text-center">
       {Icon ? (
-        <div className="rounded-2xl bg-trail-50 dark:bg-slate-800 p-3 text-trail-600 dark:text-trail-300">
+        <div className="rounded-2xl bg-trail-50 dark:bg-slate-800 p-3 text-trail-700 dark:text-trail-300">
           <Icon size={26} />
         </div>
       ) : null}

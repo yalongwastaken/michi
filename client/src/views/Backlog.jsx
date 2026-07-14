@@ -5,6 +5,7 @@ import { Check, Clock, Repeat, BookOpen, Hammer } from "lucide-react";
 import { Modal } from "../ui.jsx";
 import { dueLabel, minutes, shortDate, addDays } from "../lib/format.js";
 import TaskModal from "./TaskModal.jsx";
+import CoachBubble from "./CoachBubble.jsx";
 
 const FILTERS = [
   ["overdue", "Overdue"],
@@ -103,7 +104,7 @@ function BacklogRow({ t, day, done, onToggle, onOpen, onReschedule, busy }) {
               disabled={busy}
               onClick={() => onReschedule(t, addDays(day, days))}
               aria-label={`Reschedule to ${label === "Today" ? "today" : label === "+1d" ? "tomorrow" : "next week"}`}
-              className="rounded-md px-1.5 py-1 text-[11px] font-medium text-slate-400 transition hover:bg-slate-100 hover:text-trail-600 disabled:opacity-40 dark:hover:bg-slate-800"
+              className="rounded-md px-1.5 py-1 text-[11px] font-medium text-slate-400 transition hover:bg-slate-100 hover:text-trail-700 disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-trail-400"
             >
               {label}
             </button>
@@ -205,13 +206,19 @@ export default function Backlog({ ctx, onClose }) {
         </div>
 
         {shown.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">
-            {filter === "done"
-              ? "Nothing finished yet — the first tick starts the pile."
-              : filter
-                ? "Nothing here — a clear stretch of trail."
+          filter && filter !== "done" ? (
+            <div className="flex justify-center py-6">
+              <CoachBubble species={state.profile?.mascot} mood="idle" size={44} side="left">
+                nothing here — the path is clear.
+              </CoachBubble>
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-slate-400">
+              {filter === "done"
+                ? "Nothing finished yet — the first tick starts the pile."
                 : "No open tasks — add one from Today and it lands here."}
-          </p>
+            </p>
+          )
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {shown.map((t) => (
