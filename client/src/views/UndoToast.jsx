@@ -18,11 +18,13 @@ export default function UndoToast({ toast, onUndo, onClose }) {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center px-4"
+      // z-[60]: above Modal's z-50 — a delete fired from inside a modal (the
+      // task editor, Settings) must not leave the toast buried under the backdrop
+      className="pointer-events-none fixed inset-x-0 bottom-20 z-[60] flex justify-center px-4"
     >
       <div className="pointer-events-auto flex items-center gap-1 rounded-2xl bg-white/95 py-1.5 pl-4 pr-1.5 shadow-lg ring-1 ring-slate-200 backdrop-blur dark:bg-slate-900/95 dark:ring-slate-700">
         <span className="max-w-[15rem] truncate text-sm text-slate-600 dark:text-slate-300">
-          Deleted “{toast.title}”
+          {toast.count > 1 ? `Deleted ${toast.count} items` : `Deleted “${toast.title}”`}
         </span>
         <button
           type="button"

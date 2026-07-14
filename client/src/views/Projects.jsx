@@ -68,12 +68,10 @@ function ProjectCard({ p, ctx, roadmap, onEdit, onMove, canUp, canDown }) {
     });
 
   const remove = async () => {
-    // deleteProject also unlinks tasks pointing here (dangling refs 400 the PUT)
-    const ok = await save((s) => deleteProject(s, p.id));
+    // deleteProject also unlinks tasks pointing here (dangling refs 400 the PUT);
+    // save() itself offers the undo toast from the PUT's trash receipt
+    await save((s) => deleteProject(s, p.id));
     focusMainHeading();
-    if (ok !== false) {
-      ctx.notifyDeleted?.("project", p.title); // the undo toast's cue
-    }
   };
 
   return (

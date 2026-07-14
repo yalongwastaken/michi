@@ -162,15 +162,28 @@ const DASH = {
   insights: [{ kind: "deadline", tone: "warn", text: "Embedded: 8 days left, ~1/day to finish." }],
 };
 
+// what a delete PUT reports as trashed — two rows, so the toast's plural path
+// ("Deleted 2 items") and the restore-them-all undo get exercised
+const TRASHED = [
+  { id: "tr_a", kind: "step", title: "SPI" },
+  { id: "tr_b", kind: "task", title: "Read datasheet" },
+];
+
 let lastPost = null;
+const posts = []; // every mutating request, for multi-call assertions
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
   if (opts.method === "POST" || opts.method === "PUT") {
     lastPost = u;
+    posts.push(u);
   }
   let body = STATE;
   if (u.includes("/api/config")) {
     body = { ai: false, model: null };
+  } else if (u.includes("/api/state") && opts.method === "PUT") {
+    body = { ...STATE, trashed: TRASHED }; // the PUT's trash receipt
+  } else if (u.includes("/api/trash/restore")) {
+    body = { state: STATE, restored: { id: "tr_a", kind: "step", title: "SPI", remapped: false } };
   } else if (u.includes("/api/trash")) {
     body = {
       items: [
@@ -179,6 +192,13 @@ globalThis.fetch = async (url, opts = {}) => {
           kind: "task",
           title: "Old scratch task",
           deletedAt: "2026-06-20T09:00:00Z",
+          counts: null,
+        },
+        {
+          id: "trash_2",
+          kind: "step",
+          title: "Old scratch step",
+          deletedAt: "2026-06-21T09:00:00Z",
           counts: null,
         },
       ],
@@ -239,16 +259,23 @@ for (const name of ["Roadmaps", "Projects", "Momentum", "Today"]) {
   }
 }
 
-// Settings modal
+// Settings modal — and its trash section must render every kind sanely,
+// including the step rows the per-step delete now leaves behind
 try {
   const gear = document.querySelector('button[aria-label="Settings"]');
   await act(async () => gear.click());
   await new Promise((r) => setTimeout(r, 100));
-  if (!document.querySelector('[role="dialog"]')) {
+  const dlg = document.querySelector('[role="dialog"]');
+  if (!dlg) {
     fails.push("Settings: dialog didn't open");
+  } else if (
+    !dlg.textContent.includes("Old scratch task") ||
+    !dlg.textContent.includes("Old scratch step")
+  ) {
+    fails.push("Settings: trash rows missing (a step row must display too)");
   } else {
-    console.log("  ✓ Settings dialog");
-    const close = document.querySelector('[role="dialog"] button[aria-label="Close"]');
+    console.log("  ✓ Settings dialog (trash lists task + step rows)");
+    const close = dlg.querySelector('button[aria-label="Close"]');
     await act(async () => close?.click());
   }
 } catch (e) {
@@ -328,6 +355,46 @@ try {
   }
 } catch (e) {
   fails.push(`a11y scan: ${e.message}`);
+}
+
+// delete a step → the PUT's `trashed` receipt drives the undo toast, which sits
+// above modals (z-[60]) and restores EVERY receipt row on Undo
+try {
+  // close the backlog sheet the a11y scan left open, then head to Roadmaps
+  const sheetClose = document.querySelector('[role="dialog"] button[aria-label="Close"]');
+  await act(async () => sheetClose?.click());
+  await navTo("Roadmaps");
+  const del = document.querySelector('button[title="Delete step"]');
+  if (!del) {
+    fails.push("undo toast: no step delete button on Roadmaps");
+  } else {
+    posts.length = 0;
+    await act(async () => del.click()); // arms the two-tap confirm…
+    await act(async () => del.click()); // …and fires the delete PUT
+    await new Promise((r) => setTimeout(r, 150));
+    const toast = [...document.querySelectorAll('[role="status"]')].find((el) =>
+      el.textContent.includes("Deleted"),
+    );
+    if (!toast || !toast.textContent.includes("Deleted 2 items")) {
+      fails.push("undo toast: didn't show the PUT's trash receipt (plural form)");
+    } else if (!toast.className.includes("z-[60]")) {
+      fails.push("undo toast: must sit above modals (z-[60])");
+    } else {
+      const undoBtn = [...toast.querySelectorAll("button")].find((b) =>
+        b.textContent.includes("Undo"),
+      );
+      await act(async () => undoBtn.click());
+      await new Promise((r) => setTimeout(r, 150));
+      const restores = posts.filter((u) => u.includes("/api/trash/restore"));
+      if (restores.length !== 2) {
+        fails.push(`undo toast: expected 2 restore calls, got ${restores.length}`);
+      } else {
+        console.log("  ✓ undo toast binds the PUT's receipt and restores every row");
+      }
+    }
+  }
+} catch (e) {
+  fails.push(`undo toast: ${e.message}`);
 }
 
 if (errors.length) {

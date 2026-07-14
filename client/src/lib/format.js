@@ -78,6 +78,23 @@ export function formatMeters(m) {
   return `${km >= 10 ? Math.round(km) : km.toFixed(1).replace(/\.0$/, "")} km`;
 }
 
+/** Compact file size: 812 → "812 B", 45k → "44 KB", 1.2M → "1.2 MB". */
+export function formatBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) {
+    return "";
+  }
+  if (n < 1024) {
+    return `${Math.round(n)} B`;
+  }
+  const kb = n / 1024;
+  if (kb < 1024) {
+    return `${Math.round(kb)} KB`;
+  }
+  const mb = kb / 1024;
+  return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1).replace(/\.0$/, "")} MB`;
+}
+
 /** Friendly minutes label, e.g. 90 → "1h 30m". */
 export function minutes(min) {
   if (min == null || min === "") {
