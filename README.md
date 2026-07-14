@@ -32,6 +32,10 @@ front door.
 - **Momentum** — a streak, a contribution-style heatmap, longest streak, active days,
   waypoints walked (a light game layer — every completion is meters on the path),
   and per-roadmap progress. Streak **freezes** let you miss a day without losing it.
+- **Kata (型)** — daily forms: small self-regulation practices (greyscale phone,
+  no feeds before noon, a shutdown ritual) you commit to and honor each day.
+  Honor them all for a **clean day** and climb real discipline grades, 10級 to
+  十段. Michi suggests forms from your own patterns; the 道場 holds the library.
 - **Trust the tool** — deletes rest in a **trash** for 30 days, backups are one tap
   away in Settings, and **Plan with Claude** round-trips your whole path through
   Markdown — no integration, no API keys.
@@ -211,6 +215,7 @@ update, but never delete.
 | GET    | `/api/export.md`     | Markdown snapshot with an embedded prompt — hand it to Claude to plan                    |
 | POST   | `/api/sync/preview`  | dry-run a pasted Markdown plan (`{markdown}`) — what would change                        |
 | POST   | `/api/sync/apply`    | apply a Markdown plan atomically (create + update only, never delete)                    |
+| POST   | `/api/kata/honor`    | honor a kata for the day (`{id, on}`) — meters, clean days, discipline grades            |
 | POST   | `/api/reset`         | wipe everything and start fresh                                                          |
 
 ## License
