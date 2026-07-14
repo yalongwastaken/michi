@@ -6,8 +6,8 @@
 import { formatMeters } from "./format.js";
 
 const KEY = "michi.celebrated";
-// trail + iris + a pinch of amber
-const COLORS = ["#10B981", "#34D399", "#8B5CF6", "#A78BFA", "#F59E0B"];
+// trail persimmon + iris indigo + a pinch of amber
+const COLORS = ["#F25C05", "#F47C36", "#5B67B7", "#A9B1DC", "#F59E0B"];
 
 /** A 1.2s confetti burst overlay. No-op under prefers-reduced-motion (checked at
  * call time, so a live setting change is respected). Removes itself when done. */
@@ -116,14 +116,21 @@ export function checkCelebrations(momentum) {
   const earned = (momentum.milestones || []).filter((b) => b.earned).map((b) => b.days);
   const level = momentum.xp?.level ?? 0;
   const prev = readRecord();
+  // first look is gated on OUR fields: checkRituals may have looked first and
+  // seeded a rituals-only record, and that must still count as a first look here —
+  // otherwise every historical badge (and today's met goal) would refire
+  const firstLook = prev == null || prev.day == null;
   const sameDay = prev?.day === momentum.day;
   writeRecord({
     day: momentum.day,
     goalMet: !!momentum.metGoal || (sameDay && !!prev.goalMet),
     level,
     milestones: earned,
+    // the daruma ledgers belong to checkRituals — carry them through untouched
+    ...(prev?.rituals ? { rituals: prev.rituals } : {}),
+    ...(prev?.ritualSeen ? { ritualSeen: prev.ritualSeen } : {}),
   });
-  if (!prev) {
+  if (firstLook) {
     return null;
   }
 
@@ -132,6 +139,7 @@ export function checkCelebrations(momentum) {
     events.push({
       headline: `Waypoint reached: ${momentum.xp.name}`,
       subline: `${formatMeters(momentum.xp.totalM)} walked so far.`,
+      mood: "waypoint", // the toast mascot gets the gold aura, not the usual cheer
     });
   }
   const fresh = earned.filter((d) => !(prev.milestones || []).includes(d));
@@ -139,13 +147,48 @@ export function checkCelebrations(momentum) {
     events.push({
       headline: `${Math.max(...fresh)}-day streak!`,
       subline: "A badge for the collection — keep walking.",
+      mood: "celebrate",
     });
   }
   if (momentum.metGoal && !(sameDay && prev.goalMet)) {
     events.push({
       headline: "Daily goal met!",
       subline: `${momentum.todayCount} done today — the path continues tomorrow.`,
+      mood: "celebrate",
     });
   }
   return events[0] || null;
+}
+
+/**
+ * The daruma ritual: a dated roadmap crossing to 100% earns its second eye, once
+ * ever. Takes the roadmap tree (id/title/targetDate/complete — `complete` is the
+ * exact done===total flag, never pct rounding) and fires only on an OBSERVED
+ * transition: every dated roadmap is ledgered on sight (`ritualSeen` while still
+ * in progress, `rituals` once complete), and the eye opens only for a roadmap this
+ * record previously saw below 100%. One that arrives already finished — an import,
+ * the feature's first run — goes straight onto the once-ever ledger, silently.
+ * Returns at most one event.
+ */
+export function checkRituals(roadmaps) {
+  const dated = (roadmaps || []).filter((r) => r.targetDate);
+  const prev = readRecord();
+  const fired = prev?.rituals || []; // complete on an earlier look — never fires (again)
+  const seen = prev?.ritualSeen || []; // observed in progress at some point
+  const fresh = dated.find((r) => r.complete && seen.includes(r.id) && !fired.includes(r.id));
+  writeRecord({
+    ...(prev || {}),
+    rituals: [...new Set([...fired, ...dated.filter((r) => r.complete).map((r) => r.id)])],
+    ritualSeen: [...new Set([...seen, ...dated.filter((r) => !r.complete).map((r) => r.id)])],
+  });
+  if (!fresh) {
+    return null;
+  }
+  return {
+    headline: `Both eyes open — ${fresh.title} walked.`,
+    mood: "celebrate",
+    species: "daruma", // the goal object itself celebrates, whoever the companion is
+    eyesFilled: true,
+    burst: 1,
+  };
 }

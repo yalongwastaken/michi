@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Plus,
@@ -27,6 +27,7 @@ import { parseQuickAdd } from "../lib/quickadd.js";
 import TaskModal from "./TaskModal.jsx";
 import Backlog from "./Backlog.jsx";
 import Mascot from "./Mascot.jsx";
+import CoachBubble from "./CoachBubble.jsx";
 
 // chips that explain why an item is in today's plan
 const REASON = {
@@ -61,7 +62,7 @@ function greeting() {
   return "Good evening";
 }
 
-// donut of the daily goal — trail green while walking, iris (with a pop) once met.
+// donut of the daily goal — persimmon while walking, indigo (with a pop) once met.
 // Decorative: the coach line right beside it says the same thing in words.
 function ProgressRing({ done, goal }) {
   const met = goal > 0 && done >= goal;
@@ -74,12 +75,6 @@ function ProgressRing({ done, goal }) {
       className={`h-16 w-16 shrink-0 ${met ? "pop" : ""}`}
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id="today-ring" x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0%" stopColor="#059669" />
-          <stop offset="100%" stopColor="#34D399" />
-        </linearGradient>
-      </defs>
       <circle
         cx="32"
         cy="32"
@@ -95,10 +90,11 @@ function ProgressRing({ done, goal }) {
         fill="none"
         strokeWidth="6"
         strokeLinecap="round"
-        stroke={met ? "#8B5CF6" : "url(#today-ring)"}
         strokeDasharray={`${c * pct} ${c}`}
         transform="rotate(-90 32 32)"
-        className="transition-[stroke-dasharray] duration-500"
+        className={`transition-[stroke-dasharray] duration-500 ${
+          met ? "stroke-iris-500" : "stroke-trail-500"
+        }`}
       />
       <text
         x="32"
@@ -188,7 +184,7 @@ function Row({ item, note, onToggle, onEdit, onSkip, showReason }) {
               href={item.resourceUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-trail-600 hover:underline"
+              className="text-trail-700 hover:underline dark:text-trail-400"
             >
               open resource
             </a>
@@ -199,7 +195,7 @@ function Row({ item, note, onToggle, onEdit, onSkip, showReason }) {
             </Badge>
           ) : null}
           {item.recurrence ? (
-            <Badge className="bg-trail-50 text-trail-600 dark:bg-slate-800">
+            <Badge className="bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300">
               <Repeat size={11} /> {item.recurrence}
             </Badge>
           ) : null}
@@ -214,7 +210,7 @@ function Row({ item, note, onToggle, onEdit, onSkip, showReason }) {
               onClick={() => setNoteOpen((v) => !v)}
               aria-label={noteOpen ? "Hide note" : "Show note"}
               aria-expanded={noteOpen}
-              className="inline-flex items-center p-0.5 text-iris-500 transition hover:text-iris-600"
+              className="inline-flex items-center p-0.5 text-iris-500 transition hover:text-iris-600 dark:text-iris-300 dark:hover:text-iris-200"
             >
               <StickyNote size={12} />
             </button>
@@ -270,8 +266,8 @@ function Section({ title, icon: Icon, items, noteOf, onToggle, onEdit, tint = "t
 
 const BUDGETS = [30, 60, 90, 120];
 
-function PlanCard({ ctx, noteOf, onEdit }) {
-  const { plan, complete, save, replan, skipPlanItem, aiEnabled, busy } = ctx;
+function PlanCard({ ctx, noteOf, onEdit, onToggle, species, speaks }) {
+  const { plan, save, replan, skipPlanItem, aiEnabled, busy } = ctx;
   const [thinking, setThinking] = useState(false);
   if (!plan) {
     return null;
@@ -287,10 +283,10 @@ function PlanCard({ ctx, noteOf, onEdit }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="trail-gradient flex items-center justify-between gap-2 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-trail-100/80 bg-trail-50 px-4 py-3 dark:border-trail-900/60 dark:bg-trail-950/40">
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
-            <Sparkles size={16} className="text-iris-500" /> Your day
+            <Sparkles size={16} className="text-iris-500 dark:text-iris-300" /> Your day
             {plan.source === "ai" ? (
               <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">AI</Badge>
             ) : null}
@@ -311,10 +307,21 @@ function PlanCard({ ctx, noteOf, onEdit }) {
 
       {plan.items.length === 0 ? (
         <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
-          <Mascot mood="neutral" size={56} />
-          <p className="text-sm text-slate-400">
-            Nothing to plan yet — add a task or line up a few roadmap steps, and the path appears.
-          </p>
+          {/* speaks only when the header mascot isn't already talking a nudge —
+              one talking mascot per screen */}
+          {speaks ? (
+            <CoachBubble species={species} mood="idle" size={56} side="right">
+              nothing to plan yet — add a task, or line up a step.
+            </CoachBubble>
+          ) : (
+            <>
+              <Mascot species={species} mood="idle" size={56} />
+              <p className="text-sm text-slate-400">
+                Nothing to plan yet — add a task or line up a few roadmap steps, and the path
+                appears.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -323,7 +330,7 @@ function PlanCard({ ctx, noteOf, onEdit }) {
               key={`${it.kind}_${it.id}`}
               item={it}
               note={noteOf?.(it)}
-              onToggle={complete}
+              onToggle={onToggle}
               onEdit={onEdit}
               onSkip={(x) => skipPlanItem(x.kind, x.id, true)}
               showReason
@@ -332,7 +339,7 @@ function PlanCard({ ctx, noteOf, onEdit }) {
           <button
             onClick={oneMore}
             disabled={busy}
-            className="flex w-full items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-slate-400 hover:text-trail-600"
+            className="flex w-full items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-slate-400 hover:text-trail-700 dark:hover:text-trail-400"
           >
             <PlusIcon size={14} /> one more
           </button>
@@ -370,9 +377,9 @@ function Nudges({ items }) {
     return null;
   }
   const tone = {
-    warn: "text-rose-600",
-    good: "text-trail-600",
-    info: "text-iris-600",
+    warn: "text-rose-600 dark:text-rose-400",
+    good: "text-trail-700 dark:text-trail-400",
+    info: "text-iris-600 dark:text-iris-300",
   };
   return (
     <div className="space-y-1.5">
@@ -398,6 +405,51 @@ export default function Today({ ctx }) {
   const [showBacklog, setShowBacklog] = useState(false);
   const [editTask, setEditTask] = useState(null);
   const submitting = useRef(false); // blocks a double Enter from adding twice
+
+  // companion state: every optimistic tick bumps `burst` (replays the hop) and
+  // flashes a happy beat over whatever ambient mood is showing; the completions
+  // *confirmed* this session feed the "locked in" streak-of-completions detection
+  const [burst, setBurst] = useState(0);
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef(null);
+  // one {key, t} per confirmed completion — in-memory only, resets with the session
+  const doneTimes = useRef([]);
+  // the clock "locked in" is derived against: bumped on each confirmed completion
+  // and by the interval below, so the mood lapses without any user interaction
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  useEffect(() => {
+    // tick only while a completion is still inside the window — an idle Today
+    // carries no interval at all
+    if (!doneTimes.current.some((e) => now - e.t < 3600000)) {
+      return undefined;
+    }
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, [now]);
+  const toggle = async (kind, id, done) => {
+    if (done) {
+      // the hop and the happy flash stay optimistic — instant feedback on tap
+      setBurst((b) => b + 1);
+      setFlash(true);
+      clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlash(false), 1100);
+    }
+    const ok = await complete(kind, id, done);
+    if (done && ok) {
+      // counted only once the server confirms; prune the window on each push and
+      // dedupe by item, so un-ticking and re-ticking the same thing doesn't stack
+      const t = Date.now();
+      const key = `${kind}:${id}`;
+      const kept = doneTimes.current.filter((e) => t - e.t < 3600000);
+      if (!kept.some((e) => e.key === key)) {
+        kept.push({ key, t });
+      }
+      doneTimes.current = kept;
+      setNow(t);
+    }
+    return ok;
+  };
 
   // open the editor with the full stored task (the queue item is a lean projection)
   const openEdit = (item) => {
@@ -442,6 +494,29 @@ export default function Today({ ctx }) {
   const did = momentum?.todayCount ?? 0;
   const browseCount = today.overdue.length + today.dueToday.length + today.suggested.length;
   const openTasks = (state.tasks || []).filter((t) => t.status !== "done").length;
+  const species = state.profile?.mascot;
+
+  // "locked in": 3+ confirmed completions inside the last hour, this session.
+  // Ambient state — the celebrate (goal met) and sleepy (streak at risk) moods still
+  // take precedence, and the happy flash rides on top of it for a beat after each tick.
+  const locked = doneTimes.current.filter((e) => now - e.t < 3600000).length >= 3;
+  const mood =
+    did >= goal
+      ? "celebrate"
+      : momentum?.streak?.atRisk
+        ? "sleepy"
+        : flash
+          ? "happy"
+          : locked
+            ? "locked"
+            : did >= 1
+              ? "happy"
+              : "idle";
+
+  // when there's a nudge, the header mascot steps down a line and *speaks* the top
+  // one (real text, replacing the first plain nudge row); the rest keep the compact
+  // list. At-risk streaks keep the sleepy mood — a worried coach, not a cheery one.
+  const topNudge = ctx.nudges?.[0];
 
   return (
     <div className="space-y-5">
@@ -465,21 +540,17 @@ export default function Today({ ctx }) {
           </p>
           <StreakChip streak={momentum?.streak} />
         </div>
-        <Mascot
-          mood={
-            did >= goal
-              ? "celebrate"
-              : momentum?.streak?.atRisk
-                ? "sleepy"
-                : did >= 1
-                  ? "happy"
-                  : "neutral"
-          }
-          size={64}
-        />
+        {topNudge ? null : <Mascot species={species} mood={mood} burst={burst} size={64} />}
       </div>
 
-      <Nudges items={ctx.nudges} />
+      {topNudge ? (
+        <div className="flex justify-end">
+          <CoachBubble species={species} mood={mood} burst={burst} size={60} side="right">
+            {topNudge.text}
+          </CoachBubble>
+        </div>
+      ) : null}
+      <Nudges items={topNudge ? ctx.nudges.slice(1) : ctx.nudges} />
 
       <form onSubmit={submit} className="flex gap-2">
         <Input
@@ -505,14 +576,21 @@ export default function Today({ ctx }) {
         <div className="-mt-2 flex justify-end">
           <button
             onClick={() => setShowBacklog(true)}
-            className="inline-flex items-center gap-1 px-1 text-xs font-medium text-slate-400 transition hover:text-trail-600"
+            className="inline-flex items-center gap-1 px-1 text-xs font-medium text-slate-400 transition hover:text-trail-700 dark:hover:text-trail-400"
           >
             <ListTodo size={13} /> All tasks · {openTasks} →
           </button>
         </div>
       ) : null}
 
-      <PlanCard ctx={ctx} noteOf={noteFor} onEdit={openEdit} />
+      <PlanCard
+        ctx={ctx}
+        noteOf={noteFor}
+        onEdit={openEdit}
+        onToggle={toggle}
+        species={species}
+        speaks={!topNudge}
+      />
 
       {browseCount > 0 ? (
         <div>
@@ -530,7 +608,7 @@ export default function Today({ ctx }) {
                 icon={CircleDot}
                 items={today.overdue}
                 noteOf={noteFor}
-                onToggle={complete}
+                onToggle={toggle}
                 onEdit={openEdit}
                 tint="text-rose-500"
               />
@@ -539,7 +617,7 @@ export default function Today({ ctx }) {
                 icon={CircleDot}
                 items={today.dueToday}
                 noteOf={noteFor}
-                onToggle={complete}
+                onToggle={toggle}
                 onEdit={openEdit}
               />
               <Section
@@ -547,8 +625,8 @@ export default function Today({ ctx }) {
                 icon={Sparkles}
                 items={today.suggested}
                 noteOf={noteFor}
-                onToggle={complete}
-                tint="text-trail-600"
+                onToggle={toggle}
+                tint="text-trail-700 dark:text-trail-400"
               />
             </div>
           ) : null}
@@ -567,7 +645,7 @@ export default function Today({ ctx }) {
           {showDone ? (
             <Card className="mt-1.5 divide-y divide-slate-100 dark:divide-slate-800">
               {today.doneToday.map((it) => (
-                <Row key={`${it.kind}_${it.id}`} item={it} onToggle={complete} />
+                <Row key={`${it.kind}_${it.id}`} item={it} onToggle={toggle} />
               ))}
             </Card>
           ) : null}
