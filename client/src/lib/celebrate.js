@@ -104,17 +104,39 @@ function writeRecord(rec) {
 }
 
 /**
- * Compare fresh momentum against the last-celebrated record; returns at most one
- * {headline, subline} event (priority: waypoint > streak badge > daily goal) and
- * records everything seen, so runners-up never fire late. The very first look
- * seeds the record silently — no fireworks for history.
+ * The discipline ladder's `n` is the TRADITIONAL grade number — kyū counts DOWN
+ * toward 1級, then dan counts up from 初段 — so raw n isn't monotonic across a
+ * whole career. Fold it into one climbing scalar for the record: 無級 0,
+ * 10級→1 … 1級→10, shodan→11 … jūdan→20. Null when there's no grade payload.
  */
-export function checkCelebrations(momentum) {
+function gradeRank(g) {
+  if (!g || !Number.isFinite(g.n)) {
+    return null;
+  }
+  if (g.n === 0) {
+    return 0;
+  }
+  return /kyū/.test(g.romaji || "") ? 11 - g.n : 10 + g.n;
+}
+
+/**
+ * Compare fresh momentum (and today's kata block) against the last-celebrated
+ * record; returns at most one {headline, subline} event (priority: waypoint >
+ * grade-up > streak badge > daily goal > clean day) and records everything seen,
+ * so runners-up never fire late. The very first look seeds the record silently —
+ * no fireworks for history. The two kata events carry mood "locked" + quiet:true —
+ * discipline is quiet, an indigo aura instead of confetti.
+ */
+export function checkCelebrations(momentum, kata = null) {
   if (!momentum) {
     return null;
   }
   const earned = (momentum.milestones || []).filter((b) => b.earned).map((b) => b.days);
   const level = momentum.xp?.level ?? 0;
+  const grade = momentum.discipline?.grade;
+  const rank = gradeRank(grade);
+  // clean only counts with a real practice — an empty active set is never "clean"
+  const clean = !!(kata?.today?.clean && kata.today.total > 0);
   const prev = readRecord();
   // first look is gated on OUR fields: checkRituals may have looked first and
   // seeded a rituals-only record, and that must still count as a first look here —
@@ -126,6 +148,11 @@ export function checkCelebrations(momentum) {
     goalMet: !!momentum.metGoal || (sameDay && !!prev.goalMet),
     level,
     milestones: earned,
+    // discipline: the folded grade rank (carried through when the payload lacks
+    // it — an old server must not reset the ledger), and the last day celebrated
+    // as clean (per-day dedupe for the "型 held" toast)
+    grade: rank ?? prev?.grade ?? null,
+    cleanDay: clean ? momentum.day : (prev?.cleanDay ?? null),
     // the daruma ledgers belong to checkRituals — carry them through untouched
     ...(prev?.rituals ? { rituals: prev.rituals } : {}),
     ...(prev?.ritualSeen ? { ritualSeen: prev.ritualSeen } : {}),
@@ -142,6 +169,16 @@ export function checkCelebrations(momentum) {
       mood: "waypoint", // the toast mascot gets the gold aura, not the usual cheer
     });
   }
+  // grade-up: own-field first look (prev.grade == null seeds silently — a record
+  // from before the kata feature must not refire history), then dedupe forever
+  if (rank != null && prev.grade != null && rank > prev.grade) {
+    events.push({
+      headline: `${grade.label} — ${grade.romaji}.`,
+      subline: `${grade.english}. The form holds.`,
+      mood: "locked", // indigo aura — discipline is quiet
+      quiet: true, // no confetti
+    });
+  }
   const fresh = earned.filter((d) => !(prev.milestones || []).includes(d));
   if (fresh.length) {
     events.push({
@@ -155,6 +192,14 @@ export function checkCelebrations(momentum) {
       headline: "Daily goal met!",
       subline: `${momentum.todayCount} done today — the path continues tomorrow.`,
       mood: "celebrate",
+    });
+  }
+  // clean day: every active kata honored — a small indigo moment, once per day
+  if (clean && prev.cleanDay !== momentum.day) {
+    events.push({
+      headline: "clean day — 型 held.",
+      mood: "locked",
+      quiet: true,
     });
   }
   return events[0] || null;

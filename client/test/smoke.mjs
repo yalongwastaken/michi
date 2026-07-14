@@ -83,6 +83,35 @@ const STATE = {
   completions: [
     { id: "c1", day: "2026-06-23", kind: "step", refId: "s1", ts: "2026-06-23T10:00:00Z" },
   ],
+  kata: [
+    {
+      id: "k1",
+      title: "greyscale phone",
+      note: null,
+      builtinId: "greyscale-phone",
+      active: true,
+      position: 0,
+      createdAt: "2026-06-01T00:00:00Z",
+    },
+    {
+      id: "k2",
+      title: "morning pages",
+      note: "three pages, longhand",
+      builtinId: null,
+      active: true,
+      position: 1,
+      createdAt: "2026-06-02T00:00:00Z",
+    },
+    {
+      id: "k3",
+      title: "phone in another room",
+      note: null,
+      builtinId: "phone-away",
+      active: false,
+      position: 2,
+      createdAt: "2026-06-03T00:00:00Z",
+    },
+  ],
   profile: { name: "Sam", onboarded: true, focusAreas: [], mascot: "shiba" },
   settings: {
     theme: "light",
@@ -157,9 +186,51 @@ const DASH = {
     ],
     projects: { idea: 0, active: 1, shipped: 0 },
     heat: [{ date: "2026-06-23", count: 1 }],
+    discipline: {
+      cleanDays: 12,
+      cleanStreak: 3,
+      grade: {
+        n: 7,
+        label: "7級",
+        romaji: "7th kyū",
+        english: "seventh grade",
+        cleanDays: 12,
+        next: { label: "6級", at: 15, toGo: 3 },
+        pct: 40,
+      },
+      week: [
+        { day: "2026-06-17", state: "none" },
+        { day: "2026-06-18", state: "partial" },
+        { day: "2026-06-19", state: "clean" },
+        { day: "2026-06-20", state: "clean" },
+        { day: "2026-06-21", state: "clean" },
+        { day: "2026-06-22", state: "clean" },
+        { day: "2026-06-23", state: "pending" },
+      ],
+    },
   },
   plan: PLAN,
   insights: [{ kind: "deadline", tone: "warn", text: "Embedded: 8 days left, ~1/day to finish." }],
+  kata: {
+    items: [
+      {
+        id: "k1",
+        title: "greyscale phone",
+        builtinId: "greyscale-phone",
+        active: true,
+        honoredToday: true,
+      },
+      { id: "k2", title: "morning pages", builtinId: null, active: true, honoredToday: false },
+    ],
+    today: { honored: 1, total: 2, clean: false },
+  },
+  kataSuggestions: [
+    {
+      builtinId: "shutdown",
+      title: "shutdown ritual",
+      reason: "4 completions after 21:00 this week — close the day on purpose",
+    },
+  ],
 };
 
 // what a delete PUT reports as trashed — two rows, so the toast's plural path
@@ -168,6 +239,16 @@ const TRASHED = [
   { id: "tr_a", kind: "step", title: "SPI" },
   { id: "tr_b", kind: "task", title: "Read datasheet" },
 ];
+
+// honoring the last form: the server reports the day clean — in the honor
+// response's kataToday AND every dashboard after it (the real server is
+// consistent, and App's clean-day toast now only fires from server truth:
+// the reconciled block, never the optimistic chip flip)
+const CLEAN_KATA = {
+  items: DASH.kata.items.map((it) => ({ ...it, honoredToday: true })),
+  today: { honored: 2, total: 2, clean: true },
+};
+let honored = false; // flips once /api/kata/honor lands
 
 let lastPost = null;
 const posts = []; // every mutating request, for multi-call assertions
@@ -180,6 +261,9 @@ globalThis.fetch = async (url, opts = {}) => {
   let body = STATE;
   if (u.includes("/api/config")) {
     body = { ai: false, model: null };
+  } else if (u.includes("/api/kata/honor")) {
+    honored = true;
+    body = { ...STATE, kataToday: CLEAN_KATA };
   } else if (u.includes("/api/state") && opts.method === "PUT") {
     body = { ...STATE, trashed: TRASHED }; // the PUT's trash receipt
   } else if (u.includes("/api/trash/restore")) {
@@ -204,7 +288,7 @@ globalThis.fetch = async (url, opts = {}) => {
       ],
     };
   } else if (u.includes("/api/dashboard")) {
-    body = DASH;
+    body = honored ? { ...DASH, kata: CLEAN_KATA } : DASH;
   } else if (u.includes("/api/plan")) {
     body = PLAN;
   } else if (u.includes("/api/momentum")) {
@@ -257,6 +341,35 @@ for (const name of ["Roadmaps", "Projects", "Momentum", "Today"]) {
   } catch (e) {
     fails.push(`${name}: ${e.message}`);
   }
+}
+
+// the discipline card on Momentum: grade glyph + romaji title, the clean-day
+// caption, and seven week dots each carrying an accessible "{day}: {state}"
+try {
+  await navTo("Momentum");
+  const main = document.querySelector("main");
+  const txt = main?.textContent || "";
+  if (!txt.includes("7級") || !txt.includes("7th kyū")) {
+    fails.push("discipline: grade title (label · romaji) missing");
+  } else if (!txt.includes("12 clean days") || !txt.includes("3 to 6級")) {
+    fails.push("discipline: clean-day caption missing");
+  } else if (
+    // role="img" on the dots (a bare span's aria-label is ignored by most screen
+    // readers) inside the labelled group — the a11y contract for the week strip
+    !main.querySelector(
+      '[role="group"][aria-label="last 7 days of kata"] [role="img"][aria-label="2026-06-23: pending"]',
+    ) ||
+    !main.querySelector('[role="img"][aria-label="2026-06-19: clean"]') ||
+    !main.querySelector('[role="img"][aria-label="2026-06-18: partial"]') ||
+    !main.querySelector('[role="img"][aria-label="2026-06-17: none"]')
+  ) {
+    fails.push("discipline: week dots missing their group/img roles or day/state labels");
+  } else {
+    console.log("  ✓ discipline card: grade, caption, labelled week dots");
+  }
+  await navTo("Today");
+} catch (e) {
+  fails.push(`discipline: ${e.message}`);
 }
 
 // Settings modal — and its trash section must render every kind sanely,
@@ -312,6 +425,120 @@ try {
   }
 } catch (e) {
   fails.push(`quick-add: ${e.message}`);
+}
+
+// the 型 strip: labelled honor chips, a tap POSTs /api/kata/honor, and honoring
+// the LAST form raises the quiet clean-day toast (locked mood, no confetti)
+try {
+  const honoredChip = document.querySelector(
+    'button[aria-label="kata: greyscale phone — honored today"]',
+  );
+  const waiting = document.querySelector(
+    'button[aria-label="kata: morning pages — not honored yet"]',
+  );
+  if (!honoredChip || !waiting) {
+    fails.push("kata strip: honor chips missing or unlabelled");
+  } else {
+    lastPost = null;
+    await act(async () => waiting.click());
+    await new Promise((r) => setTimeout(r, 150));
+    if (!lastPost || !lastPost.includes("/api/kata/honor")) {
+      fails.push("kata strip: honoring didn't POST /api/kata/honor");
+    } else {
+      const toast = [...document.querySelectorAll('[role="status"] button')].find((el) =>
+        el.textContent.includes("clean day — 型 held."),
+      );
+      if (!toast) {
+        fails.push("kata strip: honoring the last form didn't raise the clean-day toast");
+      } else if (!toast.querySelector('span[lang="ja"]')) {
+        fails.push("kata strip: the toast's kanji run isn't wrapped in lang=\"ja\"");
+      } else {
+        await act(async () => toast.click()); // dismiss — the walk continues
+        console.log("  ✓ kata strip: labelled chips, honor POST, clean-day toast (lang=ja kanji)");
+      }
+    }
+  }
+} catch (e) {
+  fails.push(`kata strip: ${e.message}`);
+}
+
+// the dōjō sheet: suggestion (with its reason) adopts, an active form retires,
+// and a custom form adds — each through a full-state PUT
+try {
+  const door = document.querySelector('button[aria-label="open the dōjō — the training hall"]');
+  if (!door) {
+    fails.push("dōjō: no 道場 button on the kata strip");
+  } else {
+    await act(async () => door.click());
+    await new Promise((r) => setTimeout(r, 100));
+    const dlg = document.querySelector(
+      '[role="dialog"][aria-label="道場 dōjō — the training hall"]',
+    );
+    if (!dlg) {
+      fails.push("dōjō: sheet didn't open");
+    } else {
+      if (!dlg.querySelector('h2 span[lang="ja"]')) {
+        fails.push('dōjō: the sheet title\'s 道場 glyphs lack lang="ja"');
+      }
+      if (
+        !dlg.textContent.includes("shutdown ritual") ||
+        !dlg.textContent.includes("close the day on purpose")
+      ) {
+        fails.push("dōjō: suggestion (with its reason line) missing");
+      }
+      if (!dlg.querySelector('button[aria-label^="Adopt kata: read 10 pages"]')) {
+        fails.push("dōjō: library chips missing");
+      }
+      const puts = () => posts.filter((u) => u.includes("/api/state")).length;
+      let before = puts();
+      const adopt = dlg.querySelector('button[aria-label="Adopt kata: shutdown ritual"]');
+      await act(async () => adopt?.click());
+      await new Promise((r) => setTimeout(r, 150));
+      if (puts() !== before + 1) {
+        fails.push("dōjō: adopting a suggestion didn't PUT the state");
+      }
+      before = puts();
+      const retire = dlg.querySelector('button[aria-label="Retire greyscale phone"]');
+      await act(async () => retire?.click());
+      await new Promise((r) => setTimeout(r, 150));
+      if (puts() !== before + 1) {
+        fails.push("dōjō: retiring didn't PUT the state");
+      }
+      // your own: inline add (title only) → one more PUT
+      const input = dlg.querySelector('input[aria-label="New kata"]');
+      const setValue = (el, v) => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(
+          el,
+          v,
+        );
+        el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      };
+      await act(async () => setValue(input, "stretch before sitting down"));
+      before = puts();
+      const add = dlg.querySelector('button[aria-label="Add kata"]');
+      await act(async () => add?.click());
+      await new Promise((r) => setTimeout(r, 150));
+      if (puts() !== before + 1) {
+        fails.push("dōjō: adding a custom kata didn't PUT the state");
+      }
+      // the retired pile unfolds, cap-aware re-activate + delete in reach
+      const retiredToggle = [...dlg.querySelectorAll("button")].find((b) =>
+        b.textContent.includes("retired ·"),
+      );
+      await act(async () => retiredToggle?.click());
+      if (!dlg.querySelector('button[aria-label="Re-activate phone in another room"]')) {
+        fails.push("dōjō: retired pile missing its re-activate affordance");
+      }
+      if (!fails.some((f) => f.startsWith("dōjō"))) {
+        console.log("  ✓ dōjō sheet: suggestion+library adopt, retire, custom add, retired pile");
+      }
+      const close = dlg.querySelector('button[aria-label="Close"]');
+      await act(async () => close?.click());
+      await new Promise((r) => setTimeout(r, 80));
+    }
+  }
+} catch (e) {
+  fails.push(`dōjō: ${e.message}`);
 }
 
 // backlog sheet: opens from Today, lists the stubbed task, stays open for the

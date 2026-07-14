@@ -15,6 +15,7 @@ import {
   Undo2,
   Archive,
   Footprints,
+  Shell,
 } from "lucide-react";
 import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
 import { api } from "../lib/api.js";
@@ -23,8 +24,14 @@ import Mascot, { SPECIES_LIST } from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
 
 // glyphs for what kind of thing is resting in the trash (Footprints matches the
-// step glyph on Today's plan rows)
-const TRASH_ICON = { roadmap: Map, step: Footprints, project: Hammer, task: CheckCircle2 };
+// step glyph on Today's plan rows; Shell — a quiet spiral — stands for a kata form)
+const TRASH_ICON = {
+  roadmap: Map,
+  step: Footprints,
+  project: Hammer,
+  task: CheckCircle2,
+  kata: Shell,
+};
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -32,13 +39,15 @@ const THEMES = [
   { id: "dark", label: "Dark", icon: Moon },
 ];
 
-// "1 roadmap · 12 steps · 5 tasks" from a {kind: n} (or {kind: {count}}) map
+// "1 roadmap · 12 steps · 5 tasks" from a {kind: n} (or {kind: {count}}) map.
+// "kata" is its own plural (mirror of server/markdown.js) — never "2 katas".
 function countsLabel(obj, pick = (v) => v) {
   const parts = [];
   for (const [kind, v] of Object.entries(obj || {})) {
     const n = pick(v);
     if (n > 0) {
-      parts.push(`${n} ${kind.replace(/s$/, "")}${n > 1 ? "s" : ""}`);
+      const noun = kind.replace(/s$/, "");
+      parts.push(`${n} ${noun}${n > 1 && noun !== "kata" ? "s" : ""}`);
     }
   }
   return parts.join(" · ");

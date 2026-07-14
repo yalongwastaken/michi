@@ -68,11 +68,38 @@ function patchToday(today, kind, id, done) {
   };
 }
 
+// optimistic kata flip — the honor sibling of patchPlan/patchToday. The day
+// summary is recomputed locally as a best guess (`clean` really depends on the
+// server's day snapshot); the honor response's kataToday reconciles right after.
+function patchKata(kata, id, on) {
+  if (!kata) {
+    return kata;
+  }
+  const items = (kata.items || []).map((it) => (it.id === id ? { ...it, honoredToday: on } : it));
+  const honored = items.filter((it) => it.honoredToday).length;
+  return {
+    items,
+    today: {
+      ...kata.today,
+      honored,
+      total: items.length,
+      clean: items.length > 0 && honored === items.length,
+    },
+  };
+}
+
 export default function App({ onTheme }) {
   const [state, setState] = useState(null);
   const [today, setToday] = useState(null);
   const [momentum, setMomentum] = useState(null);
   const [plan, setPlan] = useState(null);
+  const [kata, setKata] = useState(null); // {items, today} — today's 型 block
+  // the server-confirmed twin of `kata`, only ever set from a server payload (the
+  // dashboard block, or an honor response's kataToday). The celebrate check reads
+  // THIS one: `clean` is judged against the day's snapshot on the server, and an
+  // optimistic recompute could toast a clean day the server won't grant.
+  const [kataTruth, setKataTruth] = useState(null);
+  const [kataSuggestions, setKataSuggestions] = useState([]);
   const [nudges, setNudges] = useState([]);
   const [review, setReview] = useState(null);
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -129,6 +156,9 @@ export default function App({ onTheme }) {
     setToday(resp.today);
     setMomentum(resp.momentum);
     setPlan(resp.plan);
+    setKata(resp.kata || null);
+    setKataTruth(resp.kata || null);
+    setKataSuggestions(resp.kataSuggestions || []);
     setNudges(resp.insights || []);
     setReview(resp.review || null);
   }, []);
@@ -191,14 +221,20 @@ export default function App({ onTheme }) {
   }, [load]);
 
   // game layer: each fresh momentum payload is checked against the last-celebrated
-  // record (localStorage) — at most one confetti burst + toast per new feat
+  // record (localStorage) — at most one confetti burst + toast per new feat.
+  // Kata rides along on SERVER truth only (kataTruth, never the optimistic flip):
+  // the chips still respond instantly, but the clean-day toast — and its ledger
+  // write — waits for the reconciled block, because `clean` is judged against the
+  // day's snapshot on the server. Quiet events (locked mood) skip confetti.
   useEffect(() => {
-    const ev = checkCelebrations(momentum);
+    const ev = checkCelebrations(momentum, kataTruth);
     if (ev) {
-      confettiBurst();
+      if (!ev.quiet) {
+        confettiBurst();
+      }
       setCelebration(ev);
     }
-  }, [momentum]);
+  }, [momentum, kataTruth]);
 
   // resilience: an installed PWA sits open for days — when the app comes back into
   // view (or the network returns), catch up. A day rollover reloads everything
@@ -341,6 +377,45 @@ export default function App({ onTheme }) {
     [enqueue, applyState, refreshDerived],
   );
 
+  // kata honor toggle — same shape as complete(): serialized for ordering,
+  // optimistic for feel. The response carries `kataToday` (the authoritative
+  // block, honored + clean judged against the day's snapshot) to reconcile the
+  // optimistic guess; the derived refresh then updates momentum/xp/discipline.
+  const kataHonor = useCallback(
+    (id, on) => {
+      setKata((k) => patchKata(k, id, on));
+      return enqueue(async () => {
+        try {
+          const { kataToday, ...fresh } = await api.kataHonor(id, on);
+          applyState(fresh);
+          if (kataToday) {
+            setKata(kataToday);
+            setKataTruth(kataToday); // the celebrate check waits for this — see above
+          }
+        } catch (e) {
+          // the POST failed — undo the optimistic flip locally first, because the
+          // server is likely unreachable and a truth-refresh would fail the same way
+          setKata((k) => patchKata(k, id, !on));
+          setError(e.message || "could not update that kata");
+          try {
+            await refreshDerived(); // best-effort reconcile with server truth
+          } catch {
+            /* still offline — the local revert above already put things right */
+          }
+          return false;
+        }
+        // the POST succeeded — a failed follow-up refresh must not report failure
+        try {
+          await refreshDerived();
+        } catch {
+          setError("saved — couldn't refresh the plan");
+        }
+        return true;
+      });
+    },
+    [enqueue, applyState, refreshDerived],
+  );
+
   // the toast's Undo: restore every row the PUT trashed (its receipt can name
   // several — a roadmap plus the tasks that vanished with it), adopting the
   // final state once. Enqueued so it can't interleave with a save in flight.
@@ -445,6 +520,12 @@ export default function App({ onTheme }) {
     state,
     today,
     momentum,
+    // the kata layer: today's block, the dōjō's suggestions, the honor toggle,
+    // and the discipline ladder (a momentum sub-block, aliased for the views)
+    kata,
+    kataSuggestions,
+    kataHonor,
+    discipline: momentum?.discipline || null,
     plan,
     nudges,
     review,
