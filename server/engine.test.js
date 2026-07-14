@@ -19,6 +19,9 @@ import {
   xpSummary,
   streakMilestones,
   earnedFreezes,
+  isClean,
+  computeCleanStreak,
+  grade,
 } from "./engine.js";
 
 // minimal state factory
@@ -242,10 +245,11 @@ test("summarizeActivity: per-day per-kind counts plus lifetime totals", () => {
     done("2026-06-22", "step", "s"),
     done("2026-06-23", "task", "t"),
     done("2026-06-23", "step", "s"),
+    done("2026-06-23", "kata", "k"),
   ]);
-  assert.deepEqual(byDay.get("2026-06-22"), { tasks: 0, steps: 1 });
-  assert.deepEqual(byDay.get("2026-06-23"), { tasks: 1, steps: 1 });
-  assert.deepEqual(totals, { tasks: 1, steps: 2 });
+  assert.deepEqual(byDay.get("2026-06-22"), { tasks: 0, steps: 1, kata: 0 });
+  assert.deepEqual(byDay.get("2026-06-23"), { tasks: 1, steps: 1, kata: 1 });
+  assert.deepEqual(totals, { tasks: 1, steps: 2, kata: 1 });
 });
 
 test("xp: a step is 25 m, a task 10 m, summed over the whole log", () => {
@@ -365,6 +369,163 @@ test("momentum: the freeze breakdown adds up (base + earned = total)", () => {
   const m = momentum(state({ completions: [done("2026-06-23")] }), { today: "2026-06-23" });
   assert.deepEqual(m.freezes, { base: 2, earned: 0, total: 2, used: 0, left: 2 });
   assert.equal(m.streak.freezes, m.freezes.total);
+});
+
+// ── kata: clean days, the discipline ladder, and the invariant split ────────────
+
+test("isClean: full snapshot honored = clean; empty/absent/partial = not", () => {
+  assert.equal(isClean({ activeIds: ["a", "b"], honoredIds: ["b", "a"] }), true);
+  assert.equal(isClean({ activeIds: ["a", "b"], honoredIds: ["a"] }), false);
+  assert.equal(isClean({ activeIds: [], honoredIds: [] }), false); // no forms ≠ clean
+  assert.equal(isClean(null), false);
+  assert.equal(isClean(undefined), false);
+  // extra honors beyond the snapshot (set shrank mid-day) don't hurt
+  assert.equal(isClean({ activeIds: ["a"], honoredIds: ["a", "zombie"] }), true);
+});
+
+test("computeCleanStreak: today pending doesn't break the run — freezes never apply", () => {
+  const clean = new Set(["2026-06-21", "2026-06-22", "2026-06-23"]);
+  assert.equal(computeCleanStreak(clean, "2026-06-23"), 3);
+  // today not clean yet → the run ending yesterday still counts (grace)
+  assert.equal(computeCleanStreak(new Set(["2026-06-21", "2026-06-22"]), "2026-06-23"), 2);
+  // a real gap (the 22nd) breaks it — there is no freeze to bridge kata
+  assert.equal(computeCleanStreak(new Set(["2026-06-21", "2026-06-23"]), "2026-06-23"), 1);
+  assert.equal(computeCleanStreak(new Set(["2026-06-20", "2026-06-21"]), "2026-06-23"), 0);
+  assert.equal(computeCleanStreak(new Set(), "2026-06-23"), 0);
+});
+
+test("grade: the kyū/dan ladder edges", () => {
+  const g0 = grade(0);
+  assert.deepEqual(g0, {
+    n: 0,
+    label: "無級",
+    romaji: "mukyū",
+    english: "ungraded",
+    cleanDays: 0,
+    next: { label: "10級", at: 1, toGo: 1 },
+    pct: 0,
+  });
+  const g1 = grade(1);
+  assert.equal(g1.label, "10級");
+  assert.equal(g1.romaji, "10th kyū");
+  assert.equal(g1.english, "tenth grade");
+  assert.deepEqual(g1.next, { label: "9級", at: 3, toGo: 2 });
+  const g7 = grade(10);
+  assert.equal(g7.label, "7級");
+  assert.equal(g7.romaji, "7th kyū");
+  assert.equal(g7.english, "seventh grade");
+  const g55 = grade(55);
+  assert.equal(g55.label, "1級");
+  assert.equal(g55.romaji, "1st kyū");
+  assert.deepEqual(g55.next, { label: "初段", at: 70, toGo: 15 });
+  assert.equal(g55.pct, 0);
+  const dan = grade(70);
+  assert.equal(dan.label, "初段");
+  assert.equal(dan.romaji, "shodan");
+  assert.equal(dan.english, "first dan");
+  assert.deepEqual(dan.next, { label: "二段", at: 90, toGo: 20 });
+  assert.equal(grade(80).pct, 50); // halfway from 70 to 90
+  const cap = grade(430);
+  assert.equal(cap.label, "十段");
+  assert.equal(cap.romaji, "jūdan");
+  assert.equal(cap.english, "the path continues");
+  assert.equal(cap.next, null);
+  assert.equal(cap.pct, 100);
+  const past = grade(1000);
+  assert.equal(past.label, "十段"); // the cap holds
+  assert.equal(past.next, null);
+  // garbage in → ungraded, never a crash
+  assert.equal(grade(-3).label, "無級");
+  assert.equal(grade(NaN).label, "無級");
+});
+
+test("xp: a kata honor is 5 m, a clean day +15 m on top", () => {
+  assert.equal(metersFor({ kata: 3 }), 15);
+  assert.equal(metersFor({ tasks: 1, steps: 1, kata: 1 }), 40);
+  const xp = xpSummary(
+    { tasks: 0, steps: 0, kata: 4 },
+    { kata: 2 },
+    { cleanDays: 2, todayClean: true },
+  );
+  assert.equal(xp.totalM, 4 * 5 + 2 * 15); // 50
+  assert.equal(xp.todayM, 2 * 5 + 15); // 25
+  // without the bonus opts everything stays as before (pure fallback)
+  assert.equal(xpSummary({ tasks: 1, steps: 0 }).totalM, 10);
+});
+
+test("momentum: kata count in the heatmap and XP, never the goal or the streak", () => {
+  const s = state({
+    completions: [
+      done("2026-06-22", "kata", "k1"),
+      done("2026-06-23", "kata", "k1"),
+      done("2026-06-23", "kata", "k2"),
+    ],
+    settings: { dailyGoal: 1, streakFreezes: 0 },
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  // goal + streak: kata-only days are invisible
+  assert.equal(m.todayCount, 0);
+  assert.equal(m.metGoal, false);
+  assert.equal(m.streak.current, 0);
+  assert.equal(m.streak.longest, 0);
+  // heatmap + XP: showing up counts
+  assert.equal(m.heat.at(-1).count, 2);
+  assert.equal(m.heat.at(-2).count, 1);
+  assert.equal(m.xp.totalM, 15);
+  assert.equal(m.xp.todayM, 10);
+  assert.equal(m.totalDone, 0); // totals stay task+step work
+  // a real task alongside restores the streak math untouched by kata rows
+  const mixed = momentum(
+    state({
+      completions: [done("2026-06-23", "task", "t"), done("2026-06-23", "kata", "k1")],
+      settings: { dailyGoal: 1, streakFreezes: 0 },
+    }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(mixed.todayCount, 1);
+  assert.equal(mixed.metGoal, true);
+  assert.equal(mixed.streak.current, 1);
+  assert.equal(mixed.heat.at(-1).count, 2);
+});
+
+test("momentum: the discipline block — clean days, grace, and the week strip", () => {
+  const kd = (day, activeIds, honoredIds) => ({ day, activeIds, honoredIds });
+  const s = state({
+    kataDays: [
+      kd("2026-06-20", ["a", "b"], ["a", "b"]), // clean
+      kd("2026-06-21", ["a", "b"], ["a"]), // partial
+      kd("2026-06-22", ["a", "b"], ["b", "a"]), // clean
+      kd("2026-06-23", ["a", "b"], ["a"]), // today, not clean yet
+    ],
+  });
+  const m = momentum(s, { today: "2026-06-23" });
+  const d = m.discipline;
+  assert.equal(d.cleanDays, 2);
+  assert.equal(d.cleanStreak, 1); // the 22nd; today is pending, the 21st broke the older run
+  assert.equal(d.grade.label, "10級"); // 2 clean days ≥ the 10級 threshold, short of 9級's 3
+  assert.equal(d.grade.romaji, "10th kyū");
+  assert.deepEqual(d.grade.next, { label: "9級", at: 3, toGo: 1 });
+  assert.equal(d.week.length, 7);
+  assert.deepEqual(d.week.at(-1), { day: "2026-06-23", state: "pending" });
+  assert.deepEqual(d.week.at(-2), { day: "2026-06-22", state: "clean" });
+  assert.deepEqual(d.week.at(-3), { day: "2026-06-21", state: "partial" });
+  assert.deepEqual(d.week.at(-4), { day: "2026-06-20", state: "clean" });
+  assert.deepEqual(d.week.at(-5), { day: "2026-06-19", state: "none" });
+  // XP earns the clean-day bonus: 2 clean days × 15 m (no completion rows here)
+  assert.equal(m.xp.totalM, 30);
+  // a clean TODAY counts in todayM and shows "clean" in the strip
+  const cleanToday = momentum(state({ kataDays: [kd("2026-06-23", ["a"], ["a"])] }), {
+    today: "2026-06-23",
+  });
+  assert.equal(cleanToday.discipline.cleanStreak, 1);
+  assert.equal(cleanToday.discipline.week.at(-1).state, "clean");
+  assert.equal(cleanToday.xp.todayM, 15);
+  // no kata at all → a calm zero block
+  const none = momentum(state(), { today: "2026-06-23" });
+  assert.deepEqual(none.discipline.cleanDays, 0);
+  assert.equal(none.discipline.cleanStreak, 0);
+  assert.equal(none.discipline.grade.label, "無級");
+  assert.ok(none.discipline.week.every((w) => w.state === "none" || w.state === "pending"));
 });
 
 test("momentum: heatmap is exactly heatDays long and ends today", () => {

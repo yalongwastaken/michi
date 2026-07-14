@@ -78,6 +78,70 @@ test("evening: an idle day with no freezes is at risk — gently", () => {
   assert.match(d.text, /at risk; one small thing before bed keeps it/);
 });
 
+// ── kata lines ──────────────────────────────────────────────────────────────────
+
+const KATA = [
+  { id: "ka", title: "greyscale phone", builtinId: "greyscale-phone", active: true },
+  { id: "kb", title: "shutdown ritual", builtinId: "shutdown", active: true },
+  { id: "kc", title: "retired form", active: false },
+];
+
+test("morning: active kata are listed on one line (retired ones aren't)", () => {
+  const d = buildDigest(state({ kata: KATA }), { today: "2026-06-23", budgetMin: 60 });
+  assert.match(d.text, /^Kata: greyscale phone · shutdown ritual$/m);
+  assert.doesNotMatch(d.text, /retired form/);
+  assert.deepEqual(d.kata, ["greyscale phone", "shutdown ritual"]);
+});
+
+test("morning/evening: no kata, no line", () => {
+  for (const mode of ["morning", "evening"]) {
+    const d = buildDigest(state(), { today: "2026-06-23", budgetMin: 60, mode });
+    assert.doesNotMatch(d.text, /Kata:/);
+  }
+  const evening = buildDigest(state(), { today: "2026-06-23", mode: "evening" });
+  assert.equal(evening.kata, null);
+});
+
+test("evening: partial honors name the first still-open form", () => {
+  const d = buildDigest(
+    state({
+      kata: KATA,
+      kataDays: [{ day: "2026-06-23", activeIds: ["ka", "kb"], honoredIds: ["ka"] }],
+    }),
+    { today: "2026-06-23", mode: "evening" },
+  );
+  assert.match(d.text, /Kata: 1 of 2 honored — shutdown ritual still open\./);
+  assert.deepEqual(d.kata, { honored: 1, total: 2, clean: false });
+});
+
+test("evening: a clean day holds the 型 — even if the set grew after the snapshot", () => {
+  const d = buildDigest(
+    state({
+      kata: KATA,
+      kataDays: [{ day: "2026-06-23", activeIds: ["ka", "kb"], honoredIds: ["ka", "kb"] }],
+    }),
+    { today: "2026-06-23", mode: "evening" },
+  );
+  assert.match(d.text, /Kata: a clean day — 型 held\./);
+  assert.deepEqual(d.kata, { honored: 2, total: 2, clean: true });
+  // the set changed mid-day: a third active form appears AFTER the snapshot was
+  // honored in full — the snapshot wins, the day stays clean
+  const grew = buildDigest(
+    state({
+      kata: KATA.map((k) => ({ ...k, active: true })),
+      kataDays: [{ day: "2026-06-23", activeIds: ["ka", "kb"], honoredIds: ["ka", "kb"] }],
+    }),
+    { today: "2026-06-23", mode: "evening" },
+  );
+  assert.match(grew.text, /Kata: a clean day — 型 held\./);
+  assert.deepEqual(grew.kata, { honored: 2, total: 3, clean: true });
+});
+
+test("evening: nothing honored yet reads as 0 of N, first form named", () => {
+  const d = buildDigest(state({ kata: KATA }), { today: "2026-06-23", mode: "evening" });
+  assert.match(d.text, /Kata: 0 of 2 honored — greyscale phone still open\./);
+});
+
 test("evening: no streak and an empty tomorrow stay calm", () => {
   const d = buildDigest(
     { roadmaps: [], milestones: [], steps: [], tasks: [], completions: [], settings: {} },

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { localDay } from "./dates.js";
-import { setActivitySource } from "./engine.js";
+import { setActivitySource, isClean } from "./engine.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.MICHI_DB || join(__dirname, "data", "michi.db");
@@ -101,6 +101,32 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_completions_day ON completions(day);
 
+  -- kata (型): daily self-regulation forms — greyscale phone, shutdown ritual…
+  -- Practiced, not completed: honoring one logs a completions row (kind "kata")
+  -- but the daily goal and the streak deliberately never count them (engine.js).
+  -- At most 5 may be active at once (enforced in validateState — a dōjō, not a
+  -- checklist). builtin_id points into server/kata.js's library; null = custom.
+  CREATE TABLE IF NOT EXISTS kata (
+    id         TEXT PRIMARY KEY,                  -- kata_-prefixed uid
+    title      TEXT NOT NULL,
+    note       TEXT,
+    builtin_id TEXT,                              -- KATA_LIBRARY id, null for custom
+    active     INTEGER NOT NULL DEFAULT 1,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  -- the kata honor ledger, one row per local day that saw any honoring.
+  -- active_ids is a snapshot of the active set taken at the FIRST honor of the
+  -- day; honored_ids follows the toggle. A day is "clean" when the snapshot was
+  -- honored in full — the snapshot wins over later edits to the active set
+  -- (engine.isClean). History like completions: exported, imported, never PUT.
+  CREATE TABLE IF NOT EXISTS kata_days (
+    day         TEXT PRIMARY KEY,                 -- local YYYY-MM-DD
+    active_ids  TEXT NOT NULL,                    -- JSON array of kata ids
+    honored_ids TEXT NOT NULL                     -- JSON array of kata ids
+  );
+
   -- flexible JSON blobs for the evolving profile + settings + rev
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -114,7 +140,7 @@ db.exec(`
   -- it's a recovery net, not state (see getFullState).
   CREATE TABLE IF NOT EXISTS trash (
     id         TEXT PRIMARY KEY,                 -- tr_-prefixed uid
-    kind       TEXT NOT NULL,                    -- roadmap | step | project | task
+    kind       TEXT NOT NULL,                    -- roadmap | step | project | task | kata
     title      TEXT NOT NULL,                    -- for the trash listing
     payload    TEXT NOT NULL,                    -- JSON snapshot (getState shapes)
     deleted_at TEXT NOT NULL                     -- ISO timestamp, drives retention
@@ -197,7 +223,9 @@ const STEP_STATUS = new Set(["todo", "doing", "done"]);
 const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
-const COMPLETION_KINDS = new Set(["task", "step"]);
+const COMPLETION_KINDS = new Set(["task", "step", "kata"]);
+// a dōjō, not a checklist: more than this many active kata stops being practice
+const MAX_ACTIVE_KATA = 5;
 
 // sane bounds for the numeric settings — a huge/Infinity streakFreezes would make
 // computeStreak() walk back day-by-day (nearly) forever and wedge the event loop
@@ -247,10 +275,19 @@ export function validateState(s) {
   if (!s || typeof s !== "object") {
     return "body must be an object";
   }
-  // `completions` may be present (import validates + rebuilds the log) or absent —
-  // the everyday PUT ignores the key entirely, so a client that never saw the log
-  // (GET /api/state doesn't ship it) still validates cleanly
-  for (const k of ["roadmaps", "milestones", "steps", "projects", "tasks", "completions"]) {
+  // `completions`/`kataDays` may be present (import validates + rebuilds the
+  // history) or absent — the everyday PUT ignores both keys entirely, so a client
+  // that never saw them (GET /api/state doesn't ship them) still validates cleanly
+  for (const k of [
+    "roadmaps",
+    "milestones",
+    "steps",
+    "projects",
+    "tasks",
+    "kata",
+    "completions",
+    "kataDays",
+  ]) {
     if (s[k] != null && !Array.isArray(s[k])) {
       return `${k} must be an array`;
     }
@@ -302,6 +339,39 @@ export function validateState(s) {
       return bad;
     }
   }
+  let activeKata = 0;
+  for (const k of s.kata || []) {
+    if (!k?.id) {
+      return "kata needs an id";
+    }
+    if (!k.title || !String(k.title).trim()) {
+      return "kata needs a title";
+    }
+    // bool-ish only: a truthy string like "no" flipping a kata ACTIVE would be
+    // a silent surprise — reject anything that isn't a clear boolean/0/1
+    if (k.active != null && typeof k.active !== "boolean" && k.active !== 0 && k.active !== 1) {
+      return "kata.active must be a boolean";
+    }
+    if (k.active !== false && k.active !== 0) {
+      activeKata += 1; // absent → the schema default (active)
+    }
+  }
+  if (activeKata > MAX_ACTIVE_KATA) {
+    return `at most ${MAX_ACTIVE_KATA} kata can be active — retire one before adding another`;
+  }
+  // kata_days rows only arrive via import — validate just enough that the
+  // clean-day math can't be poisoned (a garbage day, non-array id lists)
+  for (const kd of s.kataDays || []) {
+    if (!kd || typeof kd !== "object") {
+      return "kataDays rows must be objects";
+    }
+    if (!isValidDay(kd.day)) {
+      return "kataDays rows need a valid day (YYYY-MM-DD)";
+    }
+    if (!Array.isArray(kd.activeIds) || !Array.isArray(kd.honoredIds)) {
+      return "kataDays rows need activeIds and honoredIds arrays";
+    }
+  }
   // duplicate ids / dangling references would only surface as generic SQL errors
   // deep inside the import — catch them here with messages that say what's wrong
   for (const [key, label] of [
@@ -310,6 +380,7 @@ export function validateState(s) {
     ["steps", "step"],
     ["projects", "project"],
     ["tasks", "task"],
+    ["kata", "kata"],
   ]) {
     const seen = new Set();
     for (const x of s[key] || []) {
@@ -467,6 +538,12 @@ export function getState() {
         "SELECT id, title, status, due, recurrence, step_id AS stepId, project_id AS projectId, est_min AS estMin, position, notes, created_at AS createdAt, done_at AS doneAt FROM tasks ORDER BY position, created_at",
       )
       .all(),
+    kata: db
+      .prepare(
+        "SELECT id, title, note, builtin_id AS builtinId, active, position, created_at AS createdAt FROM kata ORDER BY position, created_at",
+      )
+      .all()
+      .map((k) => ({ ...k, active: !!k.active })),
     profile: getMeta("profile", DEFAULT_PROFILE),
     settings: getMeta("settings", DEFAULT_SETTINGS),
   };
@@ -477,6 +554,18 @@ function getCompletions() {
   return db.prepare("SELECT id, day, kind, ref_id AS refId, ts FROM completions ORDER BY ts").all();
 }
 
+/** The whole kata honor ledger, oldest first (id arrays parsed out of JSON). */
+function getKataDays() {
+  return db
+    .prepare("SELECT day, active_ids, honored_ids FROM kata_days ORDER BY day")
+    .all()
+    .map((r) => ({
+      day: r.day,
+      activeIds: JSON.parse(r.active_ids),
+      honoredIds: JSON.parse(r.honored_ids),
+    }));
+}
+
 // ── in-memory activity summary (what momentum reads instead of the raw log) ─────
 // The completions log is unbounded and append-only, and every dashboard request
 // used to re-aggregate all of it. Keep a small day→{tasks,steps} counter map (plus
@@ -485,15 +574,17 @@ function getCompletions() {
 // wholesale (import / restore / reset) so the next read rebuilds from scratch.
 let activityCache = null;
 
+const kindKey = (kind) => (kind === "step" ? "steps" : kind === "kata" ? "kata" : "tasks");
+
 function buildActivityCache() {
   const byDay = new Map();
-  const totals = { tasks: 0, steps: 0 };
+  const totals = { tasks: 0, steps: 0, kata: 0 };
   const rows = db
     .prepare("SELECT day, kind, COUNT(*) AS n FROM completions GROUP BY day, kind")
     .all();
   for (const { day, kind, n } of rows) {
-    const key = kind === "step" ? "steps" : "tasks";
-    const rec = byDay.get(day) || { tasks: 0, steps: 0 };
+    const key = kindKey(kind);
+    const rec = byDay.get(day) || { tasks: 0, steps: 0, kata: 0 };
     rec[key] += n;
     totals[key] += n;
     byDay.set(day, rec);
@@ -501,7 +592,7 @@ function buildActivityCache() {
   return { byDay, totals };
 }
 
-/** Day → {tasks, steps} counts + lifetime totals, cached across requests. */
+/** Day → {tasks, steps, kata} counts + lifetime totals, cached across requests. */
 export function getActivitySummary() {
   if (!activityCache) {
     activityCache = buildActivityCache();
@@ -516,11 +607,11 @@ function bumpActivity(day, kind, delta) {
   if (!activityCache) {
     return;
   }
-  const key = kind === "step" ? "steps" : "tasks";
-  const rec = activityCache.byDay.get(day) || { tasks: 0, steps: 0 };
+  const key = kindKey(kind);
+  const rec = activityCache.byDay.get(day) || { tasks: 0, steps: 0, kata: 0 };
   rec[key] += delta;
   activityCache.totals[key] += delta;
-  if (rec.tasks <= 0 && rec.steps <= 0) {
+  if (rec.tasks <= 0 && rec.steps <= 0 && rec.kata <= 0) {
     activityCache.byDay.delete(day); // an empty day must not count as "active"
   } else {
     activityCache.byDay.set(day, rec);
@@ -542,7 +633,7 @@ function dropActivityCache() {
  * carried it would "restore" old deletions into a dataset that moved on.
  */
 export function getFullState() {
-  return { ...getState(), completions: getCompletions() };
+  return { ...getState(), completions: getCompletions(), kataDays: getKataDays() };
 }
 
 // ── lean writes (the common daily interactions — no full-state PUT) ─────────────
@@ -638,6 +729,153 @@ export function setDone(kind, id, done, now = new Date().toISOString()) {
   return getState();
 }
 
+// ── kata: honoring a daily form ─────────────────────────────────────────────────
+/** One kata by id (camelCase, active as a real bool), or null. */
+export function getKata(id) {
+  const k = db
+    .prepare(
+      "SELECT id, title, note, builtin_id AS builtinId, active, position, created_at AS createdAt FROM kata WHERE id = ?",
+    )
+    .get(id);
+  return k ? { ...k, active: !!k.active } : null;
+}
+
+/** Ids of the currently active kata, in display order. */
+function activeKataIds() {
+  return db
+    .prepare("SELECT id FROM kata WHERE active = 1 ORDER BY position, created_at")
+    .all()
+    .map((r) => r.id);
+}
+
+/**
+ * The kata block for the Today/dashboard payloads and the honor response:
+ * the active kata with their honored-today flags, plus the day's summary.
+ * `clean` is judged against the day's SNAPSHOT (kata_days.active_ids), not the
+ * current active set — the set changing mid-day can't dirty an honored day.
+ * @returns {{items: Array<{id,title,builtinId,active,honoredToday}>,
+ *            today: {honored:number, total:number, clean:boolean}}}
+ */
+export function getKataToday(day = localDay(new Date().toISOString())) {
+  const row = db.prepare("SELECT active_ids, honored_ids FROM kata_days WHERE day = ?").get(day);
+  const honored = new Set(row ? JSON.parse(row.honored_ids) : []);
+  const items = db
+    .prepare(
+      "SELECT id, title, builtin_id AS builtinId FROM kata WHERE active = 1 ORDER BY position, created_at",
+    )
+    .all()
+    .map((k) => ({ ...k, active: true, honoredToday: honored.has(k.id) }));
+  return {
+    items,
+    today: {
+      honored: items.filter((i) => i.honoredToday).length,
+      total: items.length,
+      clean: isClean(
+        row ? { activeIds: JSON.parse(row.active_ids), honoredIds: [...honored] } : null,
+      ),
+    },
+  };
+}
+
+/**
+ * Toggle today's honor on a kata. The FIRST honor of a day snapshots the current
+ * active set into kata_days (the clean-day yardstick — later set edits don't move
+ * it); every toggle updates honored_ids AND writes/removes a completions row
+ * (kind "kata") so the heatmap + XP see the practice. Streak and daily goal
+ * deliberately ignore kata rows — see momentum().
+ * @param {string} id
+ * @param {boolean} on
+ * @param {string} [now] ISO timestamp (injectable for tests)
+ * @param {string} [day] local YYYY-MM-DD override (defaults to localDay(now))
+ * @returns {Object} the fresh state (sans history — see getState)
+ */
+export function setKataHonored(id, on, now = new Date().toISOString(), day = localDay(now)) {
+  let logged = 0;
+  db.exec("BEGIN");
+  try {
+    const k = db.prepare("SELECT id, active FROM kata WHERE id = ?").get(id);
+    if (!k) {
+      throw new Error(`kata not found: ${id}`);
+    }
+    if (!k.active) {
+      throw new Error(`kata is not active: ${id}`); // a retired form isn't practiced
+    }
+    const row = db.prepare("SELECT active_ids, honored_ids FROM kata_days WHERE day = ?").get(day);
+    const honored = new Set(row ? JSON.parse(row.honored_ids) : []);
+    if (on) {
+      honored.add(id);
+    } else {
+      honored.delete(id);
+    }
+    if (row && honored.size === 0) {
+      // the day's last un-honor drops the ledger row entirely — the next first
+      // honor re-snapshots a FRESH active set instead of resurrecting a stale
+      // yardstick (which, after a retire, could make clean unreachable all day)
+      db.prepare("DELETE FROM kata_days WHERE day = ?").run(day);
+    } else if (row) {
+      db.prepare("UPDATE kata_days SET honored_ids = ? WHERE day = ?").run(
+        JSON.stringify([...honored]),
+        day,
+      );
+    } else if (on) {
+      // first honor of the day: snapshot the active set as the clean-day yardstick
+      db.prepare("INSERT INTO kata_days(day, active_ids, honored_ids) VALUES(?, ?, ?)").run(
+        day,
+        JSON.stringify(activeKataIds()),
+        JSON.stringify([...honored]),
+      );
+    }
+    if (on) {
+      const ins = db
+        .prepare(
+          "INSERT OR IGNORE INTO completions(id, day, kind, ref_id, ts) VALUES(?, ?, ?, ?, ?)",
+        )
+        .run(newId(), day, "kata", id, now);
+      logged = Number(ins.changes); // 0 on a same-day re-honor
+    } else {
+      const del = db
+        .prepare("DELETE FROM completions WHERE kind = 'kata' AND ref_id = ? AND day = ?")
+        .run(id, day);
+      logged = -Number(del.changes);
+    }
+    bumpRev();
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  if (logged) {
+    bumpActivity(day, "kata", logged); // only after the commit — see bumpActivity
+  }
+  return getState();
+}
+
+/**
+ * Intersect TODAY's kata_days snapshot with the still-active set after a
+ * full-state replace: a mid-day retire/delete must not leave `clean` unreachable
+ * (the Today banner's "{honored} of {total}" has to stay achievable). Only
+ * today's row moves — history keeps the yardstick it was measured against. A
+ * snapshot that empties drops the row, so the next honor re-snapshots fresh
+ * instead of judging the day against []. Caller owns the transaction.
+ */
+function reconcileKataDay(day = localDay(new Date().toISOString())) {
+  const row = db.prepare("SELECT active_ids FROM kata_days WHERE day = ?").get(day);
+  if (!row) {
+    return;
+  }
+  const active = new Set(activeKataIds());
+  const snapshot = JSON.parse(row.active_ids);
+  const kept = snapshot.filter((id) => active.has(id));
+  if (kept.length === snapshot.length) {
+    return; // nothing retired out of today's snapshot
+  }
+  if (kept.length === 0) {
+    db.prepare("DELETE FROM kata_days WHERE day = ?").run(day);
+  } else {
+    db.prepare("UPDATE kata_days SET active_ids = ? WHERE day = ?").run(JSON.stringify(kept), day);
+  }
+}
+
 // ── full state replace (PUT /api/state) ─────────────────────────────────────────
 function replaceAll(state) {
   // children first (FKs), though ON DELETE CASCADE would handle it
@@ -646,6 +884,7 @@ function replaceAll(state) {
   db.prepare("DELETE FROM milestones").run();
   db.prepare("DELETE FROM roadmaps").run();
   db.prepare("DELETE FROM projects").run();
+  db.prepare("DELETE FROM kata").run(); // kata_days stays — it's history, like completions
 
   const ins = {
     roadmap: db.prepare(
@@ -662,6 +901,9 @@ function replaceAll(state) {
     ),
     task: db.prepare(
       "INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at) VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt)",
+    ),
+    kata: db.prepare(
+      "INSERT INTO kata(id,title,note,builtin_id,active,position,created_at) VALUES(@id,@title,@note,@builtinId,@active,@position,@createdAt)",
     ),
   };
 
@@ -721,6 +963,18 @@ function replaceAll(state) {
   for (const t of state.tasks || []) {
     ins.task.run(pickTask(t, nowIso));
   }
+  for (const k of state.kata || []) {
+    ins.kata.run({
+      id: k.id,
+      title: k.title,
+      note: k.note ?? null,
+      builtinId: k.builtinId ?? null,
+      // absent → the schema default (active); coerce bool → 0/1 for the column
+      active: k.active === false || k.active === 0 ? 0 : 1,
+      position: k.position ?? 0,
+      createdAt: k.createdAt ?? nowIso,
+    });
+  }
 
   if (state.profile) {
     setMeta("profile", state.profile);
@@ -738,7 +992,7 @@ function replaceAll(state) {
 //  - a step vanishing while its roadmap SURVIVES gets a row of its own — the
 //    client has a per-step delete button, so those are real deletes too (steps
 //    already leaving inside a roadmap row are never double-trashed)
-//  - a project or task gets a row of its own
+//  - a project, task, or kata gets a row of its own
 //  - milestones alone are never snapshotted: they're bare headings, and their
 //    steps get step rows anyway — a milestone row would just be noise
 // Each snapshot also records the OLD state's inbound links (which projects/tasks
@@ -780,6 +1034,7 @@ function trashDeleted(next, now = new Date().toISOString()) {
     steps: new Set((next.steps || []).map((s) => s.id)),
     projects: new Set((next.projects || []).map((p) => p.id)),
     tasks: new Set((next.tasks || []).map((t) => t.id)),
+    kata: new Set((next.kata || []).map((k) => k.id)),
   };
   const old = getState();
   const inRoadmapRow = new Set(); // step ids already leaving inside a subtree row
@@ -829,6 +1084,11 @@ function trashDeleted(next, now = new Date().toISOString()) {
   for (const t of old.tasks) {
     if (!keep.tasks.has(t.id)) {
       put("task", t.title, { task: t });
+    }
+  }
+  for (const k of old.kata) {
+    if (!keep.kata.has(k.id)) {
+      put("kata", k.title, { kata: k }); // its honor history (kata_days) stays put
     }
   }
   if (trashed.length > 0) {
@@ -887,6 +1147,7 @@ export function restoreTrash(id) {
   const step = snap.step ?? null; // a lone step row (kind "step")
   const project = snap.project ?? null;
   const task = snap.task ?? null;
+  const kata = snap.kata ?? null;
   const links = snap.links || {};
 
   const exists = (table, xid) =>
@@ -909,6 +1170,7 @@ export function restoreTrash(id) {
     ...(step ? [["steps", "step", step]] : []),
     ...(project ? [["projects", "proj", project]] : []),
     ...(task ? [["tasks", "task", task]] : []),
+    ...(kata ? [["kata", "kata", kata]] : []),
   ];
   const remapped = owned.some(([table, , item]) => exists(table, item.id));
   const idMap = new Map();
@@ -1006,6 +1268,27 @@ export function restoreTrash(id) {
         ),
       );
     }
+    if (kata) {
+      // a restore must not smuggle the dōjō past its ≤5-active limit (the next
+      // full-state PUT would fail validation and strand the client) — when the
+      // active set is already full, the kata comes back retired instead
+      const wantsActive = kata.active !== false && kata.active !== 0;
+      const fullHouse =
+        wantsActive &&
+        Number(db.prepare("SELECT COUNT(*) AS n FROM kata WHERE active = 1").get().n) >=
+          MAX_ACTIVE_KATA;
+      db.prepare(
+        "INSERT INTO kata(id,title,note,builtin_id,active,position,created_at) VALUES(?,?,?,?,?,?,?)",
+      ).run(
+        mapId(kata.id),
+        kata.title,
+        kata.note ?? null,
+        kata.builtinId ?? null,
+        wantsActive && !fullHouse ? 1 : 0,
+        kata.position ?? 0,
+        kata.createdAt ?? nowIso,
+      );
+    }
     // stitch severed inbound links back (recorded at trash time from the OLD
     // state). The WHERE clauses carry the whole policy: the linking item must
     // still exist (0 changes otherwise) and must not have been repointed
@@ -1091,6 +1374,7 @@ export function putState(state, expectedRev) {
   try {
     trashed = trashDeleted(state); // before the replace, while the old rows still exist
     replaceAll(state);
+    reconcileKataDay(); // today's honor snapshot follows a retire/delete — see above
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {
@@ -1115,6 +1399,8 @@ export function resetAll() {
       "milestones",
       "roadmaps",
       "projects",
+      "kata",
+      "kata_days",
       "completions",
       "trash",
     ]) {
@@ -1154,6 +1440,22 @@ function writeCompletionRows(rows = []) {
   }
 }
 
+/** Inner worker for kata-honor-ledger rebuilds — the caller owns the transaction.
+ * Rows come pre-validated (validateState checks day + arrays on import), but skip
+ * malformed ones defensively rather than fail the whole import. */
+function writeKataDayRows(rows = []) {
+  db.prepare("DELETE FROM kata_days").run();
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO kata_days(day, active_ids, honored_ids) VALUES(?, ?, ?)",
+  );
+  for (const r of rows) {
+    if (!r || !isValidDay(r.day) || !Array.isArray(r.activeIds) || !Array.isArray(r.honoredIds)) {
+      continue;
+    }
+    ins.run(r.day, JSON.stringify(r.activeIds), JSON.stringify(r.honoredIds));
+  }
+}
+
 /**
  * Replace the whole completion log from an array of rows. The everyday full-state
  * PUT deliberately leaves completions untouched (they're server-owned history that
@@ -1190,6 +1492,7 @@ export function importAll(state) {
   try {
     replaceAll(state);
     writeCompletionRows(state.completions || []);
+    writeKataDayRows(state.kataDays || []); // honor history restores with the backup
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {
