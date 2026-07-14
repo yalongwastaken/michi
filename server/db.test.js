@@ -362,17 +362,53 @@ test("full-state PUT trashes a vanished roadmap as ONE subtree snapshot", () => 
   assert.equal(task.counts, null); // nothing to count on a lone task
 });
 
-test("milestones/steps removed while their roadmap survives are NOT trashed", () => {
+test("a step deleted while its roadmap survives gets a trash row; milestones never do", () => {
   db.resetAll();
   db.putState(TREE);
-  // routine editing: one milestone and its steps gone, the roadmap still there
+  // one milestone edited away while the roadmap stays: the milestone itself is
+  // routine editing (no row), but its step is a real delete — the client has a
+  // per-step delete button, so the safety net must cover steps too
   db.putState({
     ...TREE,
     milestones: TREE.milestones.slice(0, 1),
     steps: TREE.steps.slice(0, 2),
     tasks: [{ id: "tr-t", title: "Doomed Task" }], // drop refs, keep the task
   });
-  assert.deepEqual(db.listTrash(), []);
+  const items = db.listTrash();
+  assert.deepEqual(
+    items.map((i) => i.kind),
+    ["step"],
+  );
+  assert.equal(items[0].title, "C");
+  assert.equal(items[0].counts, null); // nothing to count on a lone step
+});
+
+test("the per-step delete is trashed — and steps inside a roadmap row aren't doubled", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // the client's step delete: the step vanishes, the task that pointed at it is unlinked
+  db.putState({
+    ...TREE,
+    steps: TREE.steps.filter((s) => s.id !== "tr-s1"),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  assert.deepEqual(
+    db.listTrash().map((i) => [i.kind, i.title]),
+    [["step", "A"]],
+  );
+  // now the whole roadmap goes: its remaining steps travel INSIDE the roadmap
+  // row — no extra step rows appear alongside it
+  db.putState({
+    projects: TREE.projects.map((p) => ({ ...p, roadmapId: null })),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  assert.deepEqual(
+    db
+      .listTrash()
+      .map((i) => i.kind)
+      .sort(),
+    ["roadmap", "step"],
+  );
 });
 
 test("a vanished project gets its own trash row; importAll never trashes", () => {
@@ -461,22 +497,156 @@ test("restoreTrash: outward refs that no longer resolve are nulled", () => {
   assert.equal(t.projectId, null);
 });
 
-test("trash retention: capped at the newest 50, and old rows age out", () => {
+test("putState returns a `trashed` receipt naming exactly what the PUT deleted", () => {
   db.resetAll();
-  const tasks = Array.from({ length: 55 }, (_, i) => ({
+  let s = db.putState({ tasks: [{ id: "rc", title: "receipt me" }] });
+  assert.deepEqual(s.trashed, []); // nothing vanished — an empty receipt, always present
+  s = db.putState({ tasks: [] });
+  assert.equal(s.trashed.length, 1);
+  assert.equal(s.trashed[0].kind, "task");
+  assert.equal(s.trashed[0].title, "receipt me");
+  assert.match(s.trashed[0].id, /^tr_/);
+  // the receipt ids ARE the trash rows — an undo can bind to them directly
+  assert.deepEqual(
+    db.listTrash().map((r) => r.id),
+    s.trashed.map((r) => r.id),
+  );
+  // import never trashes (replace semantics), so its response carries no receipt
+  assert.ok(!("trashed" in db.importAll({ tasks: [] })));
+});
+
+test("restoreTrash: a lone step reattaches to its surviving milestone, links included", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // the client's step delete: the step goes, the task that pointed at it is unlinked
+  db.putState({
+    ...TREE,
+    steps: TREE.steps.filter((s) => s.id !== "tr-s1"),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "step");
+  const { state, restored } = db.restoreTrash(entry.id);
+  assert.deepEqual(restored, { id: entry.id, kind: "step", title: "A", remapped: false });
+  const back = state.steps.find((s) => s.id === "tr-s1");
+  assert.equal(back.milestoneId, "tr-m1"); // hanging off its original milestone
+  // the severed inbound link is stitched back (the task hadn't been repointed)
+  assert.equal(state.tasks.find((t) => t.id === "tr-t").stepId, "tr-s1");
+});
+
+test("restoreTrash: a recreated step id remaps — and the task link follows the fresh id", () => {
+  db.resetAll();
+  db.putState(TREE);
+  db.putState({
+    ...TREE,
+    steps: TREE.steps.filter((s) => s.id !== "tr-s1"),
+    tasks: [{ id: "tr-t", title: "Doomed Task" }],
+  });
+  // the user rebuilt a step under the SAME id before restoring
+  db.putState({
+    ...TREE,
+    steps: [
+      { id: "tr-s1", milestoneId: "tr-m1", title: "Rebuilt", position: 5 },
+      ...TREE.steps.slice(1),
+    ],
+    tasks: [{ id: "tr-t", title: "Doomed Task" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "step");
+  const { state, restored } = db.restoreTrash(entry.id);
+  assert.equal(restored.remapped, true);
+  const back = state.steps.find((s) => s.title === "A");
+  assert.notEqual(back.id, "tr-s1");
+  assert.match(back.id, /^step_/);
+  // the re-attached link points at the FRESH id, not the rebuilt impostor
+  assert.equal(state.tasks.find((t) => t.id === "tr-t").stepId, back.id);
+});
+
+test("restoreTrash: a step whose milestone is gone refuses with a clear conflict", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // the step goes first…
+  db.putState({
+    ...TREE,
+    steps: TREE.steps.filter((s) => s.id !== "tr-s1"),
+    tasks: [{ id: "tr-t", title: "Doomed Task" }],
+  });
+  // …then the whole roadmap (taking milestone tr-m1 with it)
+  db.putState({
+    projects: TREE.projects.map((p) => ({ ...p, roadmapId: null })),
+    tasks: [{ id: "tr-t", title: "Doomed Task" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "step");
+  assert.throws(() => db.restoreTrash(entry.id), db.ConflictError);
+  assert.throws(() => db.restoreTrash(entry.id), /restore the whole roadmap/);
+  // the row is still in the trash — a refused restore consumes nothing
+  assert.ok(db.listTrash().some((i) => i.id === entry.id));
+});
+
+test("restoreTrash: a restored roadmap re-attaches the project/task links it severed", () => {
+  db.resetAll();
+  db.putState(TREE);
+  // delete the roadmap; the project and task survive, unlinked (as the client does)
+  db.putState({
+    projects: TREE.projects.map((p) => ({ ...p, roadmapId: null })),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "roadmap");
+  const { state } = db.restoreTrash(entry.id);
+  assert.equal(state.projects.find((p) => p.id === "tr-p").roadmapId, "tr-rm");
+  assert.equal(state.tasks.find((t) => t.id === "tr-t").stepId, "tr-s1");
+});
+
+test("restoreTrash: a link the user repointed meanwhile is left alone", () => {
+  db.resetAll();
+  const other = { id: "tr-rm2", title: "Other Track" };
+  db.putState({ ...TREE, roadmaps: [...TREE.roadmaps, other] });
+  // delete the doomed roadmap, project unlinked…
+  db.putState({
+    roadmaps: [other],
+    projects: TREE.projects.map((p) => ({ ...p, roadmapId: null })),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  // …then the user points the project somewhere else before undoing
+  db.putState({
+    roadmaps: [other],
+    projects: TREE.projects.map((p) => ({ ...p, roadmapId: "tr-rm2" })),
+    tasks: [{ id: "tr-t", title: "Doomed Task", projectId: "tr-p" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "roadmap");
+  const { state } = db.restoreTrash(entry.id);
+  // the repointed link is respected; the never-repointed task link comes back
+  assert.equal(state.projects.find((p) => p.id === "tr-p").roadmapId, "tr-rm2");
+  assert.equal(state.tasks.find((t) => t.id === "tr-t").stepId, "tr-s1");
+});
+
+test("restoreTrash: a restored project re-attaches its task links", () => {
+  db.resetAll();
+  db.putState(TREE);
+  db.putState({
+    ...TREE,
+    projects: [],
+    tasks: [{ id: "tr-t", title: "Doomed Task", stepId: "tr-s1" }],
+  });
+  const entry = db.listTrash().find((i) => i.kind === "project");
+  const { state } = db.restoreTrash(entry.id);
+  assert.equal(state.tasks.find((t) => t.id === "tr-t").projectId, "tr-p");
+});
+
+test("trash retention: capped at the newest 200, and old rows age out", () => {
+  db.resetAll();
+  const tasks = Array.from({ length: 205 }, (_, i) => ({
     id: `ret${i}`,
     title: `ret ${i}`,
     position: i,
   }));
   db.putState({ tasks });
-  db.putState({ tasks: [] }); // 55 deletes in one diff → retention trims to 50
+  db.putState({ tasks: [] }); // 205 deletes in one diff → retention trims to 200
   const items = db.listTrash();
-  assert.equal(items.length, 50);
+  assert.equal(items.length, 200);
   const titles = new Set(items.map((i) => i.title));
   for (let i = 0; i < 5; i++) {
     assert.ok(!titles.has(`ret ${i}`), `oldest row "ret ${i}" should have been dropped`);
   }
-  assert.ok(titles.has("ret 54"));
+  assert.ok(titles.has("ret 204"));
   // a row past the 30-day window is purged by the next insert
   const stale = new Date(Date.now() - 31 * 86400000).toISOString();
   db.db

@@ -114,7 +114,7 @@ db.exec(`
   -- it's a recovery net, not state (see getFullState).
   CREATE TABLE IF NOT EXISTS trash (
     id         TEXT PRIMARY KEY,                 -- tr_-prefixed uid
-    kind       TEXT NOT NULL,                    -- roadmap | project | task
+    kind       TEXT NOT NULL,                    -- roadmap | step | project | task
     title      TEXT NOT NULL,                    -- for the trash listing
     payload    TEXT NOT NULL,                    -- JSON snapshot (getState shapes)
     deleted_at TEXT NOT NULL                     -- ISO timestamp, drives retention
@@ -164,7 +164,10 @@ const DEFAULT_SETTINGS = {
 // trash retention: a safety net, not an archive — old snapshots age out and the
 // table stays small enough to list in full. Enforced at boot + after every insert.
 const TRASH_RETENTION_DAYS = 30; // rows older than this are purged
-const TRASH_MAX_ROWS = 50; // …and only the newest N are kept
+// generous cap: one mass delete (a big roadmap wipe, an "empty the backlog"
+// sweep) can insert dozens of rows in a single diff — a tight cap would let that
+// burst evict the safety net under EARLIER deletes the user may still regret
+const TRASH_MAX_ROWS = 200; // …and only the newest N are kept
 
 /** Strict calendar-day check: YYYY-MM-DD that round-trips (rejects 2024-02-30 etc). */
 function isValidDay(s) {
@@ -714,12 +717,18 @@ function replaceAll(state) {
 // replaceAll wipes + reinserts, so nothing ever announces "delete this". Before
 // each replace, putState diffs old vs new and snapshots whatever disappeared:
 //  - a roadmap takes its whole subtree (milestones + steps) along in ONE row
+//  - a step vanishing while its roadmap SURVIVES gets a row of its own — the
+//    client has a per-step delete button, so those are real deletes too (steps
+//    already leaving inside a roadmap row are never double-trashed)
 //  - a project or task gets a row of its own
-//  - milestones/steps vanishing while their roadmap SURVIVES are routine editing,
-//    not deletion — snapshotting those would bury real deletes in noise
-// importAll deliberately does NOT trash: import (JSON restore, Claude sync apply)
-// is a replace semantic — the user consciously swaps the dataset, and trashing
-// the entire old model on every sync would flush real deletes out of retention.
+//  - milestones alone are never snapshotted: they're bare headings, and their
+//    steps get step rows anyway — a milestone row would just be noise
+// Each snapshot also records the OLD state's inbound links (which projects/tasks
+// pointed at the vanished rows), so a restore can stitch them back — see
+// restoreTrash. importAll deliberately does NOT trash: import (JSON restore,
+// Claude sync apply) is a replace semantic — the user consciously swaps the
+// dataset, and trashing the entire old model on every sync would flush real
+// deletes out of retention.
 
 /** Purge trash past its retention: drop rows older than TRASH_RETENTION_DAYS,
  * then keep only the newest TRASH_MAX_ROWS (rowid breaks same-timestamp ties in
@@ -735,20 +744,27 @@ enforceTrashRetention(); // boot: a long-lived server still ages its trash out
 
 /** Diff the live tables against an incoming full state and snapshot everything
  * that disappeared into trash. Caller owns the transaction — run BEFORE the
- * replace, while the old rows are still there to read. */
+ * replace, while the old rows are still there to read.
+ * @returns {Array<{id, kind, title}>} the inserted rows, in insertion order —
+ *   putState ships this receipt so the client can offer undo without guessing */
 function trashDeleted(next, now = new Date().toISOString()) {
   const ins = db.prepare(
     "INSERT INTO trash(id, kind, title, payload, deleted_at) VALUES(?, ?, ?, ?, ?)",
   );
-  const put = (kind, title, payload) =>
-    ins.run(uid("tr"), kind, title, JSON.stringify(payload), now);
+  const trashed = [];
+  const put = (kind, title, payload) => {
+    const id = uid("tr");
+    ins.run(id, kind, title, JSON.stringify(payload), now);
+    trashed.push({ id, kind, title });
+  };
   const keep = {
     roadmaps: new Set((next.roadmaps || []).map((r) => r.id)),
+    steps: new Set((next.steps || []).map((s) => s.id)),
     projects: new Set((next.projects || []).map((p) => p.id)),
     tasks: new Set((next.tasks || []).map((t) => t.id)),
   };
   const old = getState();
-  let inserted = 0;
+  const inRoadmapRow = new Set(); // step ids already leaving inside a subtree row
   for (const r of old.roadmaps) {
     if (keep.roadmaps.has(r.id)) {
       continue;
@@ -756,30 +772,57 @@ function trashDeleted(next, now = new Date().toISOString()) {
     const milestones = old.milestones.filter((m) => m.roadmapId === r.id);
     const msIds = new Set(milestones.map((m) => m.id));
     const steps = old.steps.filter((s) => msIds.has(s.milestoneId));
-    put("roadmap", r.title, { roadmap: r, milestones, steps });
-    inserted++;
+    const stepIds = new Set(steps.map((s) => s.id));
+    for (const id of stepIds) {
+      inRoadmapRow.add(id);
+    }
+    // inbound links, read from the OLD state before the client's unlinking lands
+    put("roadmap", r.title, {
+      roadmap: r,
+      milestones,
+      steps,
+      links: {
+        projects: old.projects.filter((p) => p.roadmapId === r.id).map((p) => p.id),
+        tasks: old.tasks
+          .filter((t) => t.stepId != null && stepIds.has(t.stepId))
+          .map((t) => ({ id: t.id, stepId: t.stepId })),
+      },
+    });
+  }
+  // a step that vanished on its own — the per-step delete button, or its
+  // milestone edited away while the roadmap stays — is a real delete too
+  for (const s of old.steps) {
+    if (keep.steps.has(s.id) || inRoadmapRow.has(s.id)) {
+      continue;
+    }
+    put("step", s.title, {
+      step: s,
+      links: { tasks: old.tasks.filter((t) => t.stepId === s.id).map((t) => t.id) },
+    });
   }
   for (const p of old.projects) {
     if (!keep.projects.has(p.id)) {
-      put("project", p.title, { project: p });
-      inserted++;
+      put("project", p.title, {
+        project: p,
+        links: { tasks: old.tasks.filter((t) => t.projectId === p.id).map((t) => t.id) },
+      });
     }
   }
   for (const t of old.tasks) {
     if (!keep.tasks.has(t.id)) {
       put("task", t.title, { task: t });
-      inserted++;
     }
   }
-  if (inserted > 0) {
+  if (trashed.length > 0) {
     enforceTrashRetention(now);
   }
+  return trashed;
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Human summary of what a trash payload contains ("2 milestones · 5 steps");
- * null for kinds with nothing to count (a lone project or task). */
+ * null for kinds with nothing to count (a lone step, project, or task). */
 function trashCounts(kind, payload) {
   if (kind !== "roadmap") {
     return null;
@@ -805,8 +848,14 @@ export function listTrash() {
  * recreated the item), EVERY id in the snapshot is remapped to a fresh uid so a
  * restore can never collide; outward refs (task.stepId/projectId,
  * project.roadmapId) that no longer resolve are nulled rather than left dangling.
+ * Inbound links recorded at trash time are stitched back — but only onto linking
+ * items that still exist and haven't been repointed meanwhile (their link column
+ * is still null), and always through the remap so they follow fresh ids.
  * @returns {{state: Object, restored: {id, kind, title, remapped: boolean}}}
  * @throws {Error} when the trash entry doesn't exist
+ * @throws {ConflictError} for a step row whose parent milestone is gone — the
+ *   step has nowhere to hang; the roadmap row (which carries the milestone) is
+ *   the restore path then
  */
 export function restoreTrash(id) {
   const row = db.prepare("SELECT id, kind, title, payload FROM trash WHERE id = ?").get(id);
@@ -817,11 +866,21 @@ export function restoreTrash(id) {
   const roadmap = snap.roadmap ?? null;
   const milestones = snap.milestones || [];
   const steps = snap.steps || [];
+  const step = snap.step ?? null; // a lone step row (kind "step")
   const project = snap.project ?? null;
   const task = snap.task ?? null;
+  const links = snap.links || {};
 
   const exists = (table, xid) =>
     xid != null && !!db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(xid);
+
+  // a lone step's milestone is an outward ref it can't live without (the FK) —
+  // refuse up front with a message that points at the working path
+  if (step && !exists("milestones", step.milestoneId)) {
+    throw new ConflictError(
+      `can't restore "${row.title}" — its milestone is gone; restore the whole roadmap from the trash instead`,
+    );
+  }
 
   // every id the snapshot OWNS, with its table — one list drives both the
   // collision scan and the remap, so they can never disagree
@@ -829,6 +888,7 @@ export function restoreTrash(id) {
     ...(roadmap ? [["roadmaps", "rm", roadmap]] : []),
     ...milestones.map((m) => ["milestones", "ms", m]),
     ...steps.map((s) => ["steps", "step", s]),
+    ...(step ? [["steps", "step", step]] : []),
     ...(project ? [["projects", "proj", project]] : []),
     ...(task ? [["tasks", "task", task]] : []),
   ];
@@ -881,6 +941,20 @@ export function restoreTrash(id) {
         );
       }
     }
+    if (step) {
+      db.prepare(
+        "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
+        mapId(step.id),
+        step.milestoneId, // outward ref — its existence was checked up front
+        step.title,
+        step.status ?? "todo",
+        step.position ?? 0,
+        step.resourceUrl ?? null,
+        step.notes ?? null,
+        step.doneAt ?? null,
+      );
+    }
     if (project) {
       db.prepare(
         "INSERT INTO projects(id,title,status,repo_url,summary,position,created_at,shipped_at,roadmap_id) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -914,6 +988,41 @@ export function restoreTrash(id) {
         ),
       );
     }
+    // stitch severed inbound links back (recorded at trash time from the OLD
+    // state). The WHERE clauses carry the whole policy: the linking item must
+    // still exist (0 changes otherwise) and must not have been repointed
+    // meanwhile (its link column is still NULL) — and mapId keeps every
+    // re-attachment on the fresh ids when the restore had to remap.
+    if (roadmap) {
+      for (const pid of links.projects || []) {
+        db.prepare("UPDATE projects SET roadmap_id = ? WHERE id = ? AND roadmap_id IS NULL").run(
+          mapId(roadmap.id),
+          pid,
+        );
+      }
+      for (const l of links.tasks || []) {
+        db.prepare("UPDATE tasks SET step_id = ? WHERE id = ? AND step_id IS NULL").run(
+          mapId(l.stepId),
+          l.id,
+        );
+      }
+    }
+    if (step) {
+      for (const tid of links.tasks || []) {
+        db.prepare("UPDATE tasks SET step_id = ? WHERE id = ? AND step_id IS NULL").run(
+          mapId(step.id),
+          tid,
+        );
+      }
+    }
+    if (project) {
+      for (const tid of links.tasks || []) {
+        db.prepare("UPDATE tasks SET project_id = ? WHERE id = ? AND project_id IS NULL").run(
+          mapId(project.id),
+          tid,
+        );
+      }
+    }
     db.prepare("DELETE FROM trash WHERE id = ?").run(id);
     bumpRev();
     db.exec("COMMIT");
@@ -945,17 +1054,24 @@ export class ConflictError extends Error {}
  * Replace the full state inside a transaction, bumping the rev. The completions
  * log is deliberately untouched (see replaceCompletions): a `completions` key in
  * the incoming body is simply ignored. Whatever the incoming state DROPPED is
- * snapshotted into trash first (same transaction — see trashDeleted).
+ * snapshotted into trash first (same transaction — see trashDeleted), and the
+ * response carries that receipt as `trashed: [{id, kind, title}]` (an empty
+ * array when nothing vanished) so the client's undo toast binds to the exact
+ * rows this write created — never a guess at the newest trash entry. Only this
+ * everyday PUT sets `trashed`: import/sync land in importAll, which never
+ * trashes, so their responses carry no such key.
  * @param {number} [expectedRev] - if set and stale, throws ConflictError
- * @returns {Object} the fresh state (sans completions log — see getState)
+ * @returns {Object} the fresh state (sans completions log — see getState) plus
+ *   the `trashed` receipt
  */
 export function putState(state, expectedRev) {
   if (expectedRev != null && Number(expectedRev) !== getRev()) {
     throw new ConflictError("state changed since you loaded it");
   }
+  let trashed;
   db.exec("BEGIN");
   try {
-    trashDeleted(state); // before the replace, while the old rows still exist
+    trashed = trashDeleted(state); // before the replace, while the old rows still exist
     replaceAll(state);
     bumpRev();
     db.exec("COMMIT");
@@ -963,7 +1079,7 @@ export function putState(state, expectedRev) {
     db.exec("ROLLBACK");
     throw e;
   }
-  return getState();
+  return { ...getState(), trashed };
 }
 
 /**
