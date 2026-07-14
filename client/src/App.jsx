@@ -11,6 +11,7 @@ import Settings from "./views/Settings.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Celebration from "./views/Celebration.jsx";
 import UndoToast from "./views/UndoToast.jsx";
+import Mascot from "./views/Mascot.jsx";
 import { Logo } from "./views/Logo.jsx";
 import { checkCelebrations, confettiBurst } from "./lib/celebrate.js";
 
@@ -46,7 +47,9 @@ function Loading() {
   }, []);
   return (
     <div className="flex flex-col items-center gap-3">
-      <Logo className="h-10 w-10 animate-pulse" />
+      {/* the profile hasn't loaded yet, so the chosen companion is unknown — the
+          default shiba holds the trail until the state arrives */}
+      <Mascot species="shiba" mood="idle" size={72} />
       <p className="text-xs text-slate-400">{LOADING_LINES[i]}</p>
     </div>
   );
@@ -408,7 +411,7 @@ export default function App({ onTheme }) {
           <div className="flex max-w-xs flex-col items-center gap-2 text-center">
             <AlertTriangle className="text-amber-500" />
             <p>{error}</p>
-            <button className="text-trail-600 underline" onClick={load}>
+            <button className="text-trail-700 underline dark:text-trail-400" onClick={load}>
               retry
             </button>
           </div>
@@ -462,7 +465,7 @@ export default function App({ onTheme }) {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col">
-      <header className="trail-gradient sticky top-0 z-20 border-b border-slate-200/60 dark:border-slate-800/80 px-4 pb-3 pt-4 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-sand-50/85 dark:border-slate-800/80 dark:bg-slate-950/80 px-4 pb-3 pt-4 backdrop-blur">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Logo className="h-8 w-8" />
@@ -524,7 +527,7 @@ export default function App({ onTheme }) {
                 aria-current={active ? "page" : undefined}
                 className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition ${
                   active
-                    ? "text-trail-600 dark:text-trail-400"
+                    ? "text-trail-700 dark:text-trail-400"
                     : "text-slate-500 dark:text-slate-400"
                 }`}
               >
@@ -533,7 +536,7 @@ export default function App({ onTheme }) {
                 {badge > 0 ? (
                   <span
                     aria-label={`${badge} needing attention`}
-                    className="absolute right-[26%] top-1.5 min-w-4 rounded-full bg-trail-500 px-1 text-[10px] font-bold leading-4 text-white"
+                    className="absolute right-[26%] top-1.5 min-w-4 rounded-full bg-trail-600 px-1 text-[10px] font-bold leading-4 text-white"
                   >
                     {badge}
                   </span>
@@ -546,7 +549,11 @@ export default function App({ onTheme }) {
 
       {settingsOpen && <Settings ctx={ctx} onClose={() => setSettingsOpen(false)} />}
       {celebration ? (
-        <Celebration event={celebration} onClose={() => setCelebration(null)} />
+        <Celebration
+          event={celebration}
+          species={state.profile?.mascot}
+          onClose={() => setCelebration(null)}
+        />
       ) : null}
       {undo ? <UndoToast toast={undo} onUndo={undoDelete} onClose={() => setUndo(null)} /> : null}
     </div>

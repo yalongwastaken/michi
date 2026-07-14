@@ -1,7 +1,8 @@
-import { Flame, Trophy, CalendarCheck, Rocket, Snowflake, Check, Milestone } from "lucide-react";
+import { Trophy, CalendarCheck, Rocket, Snowflake, Check, Milestone, Flame } from "lucide-react";
 import { Card, Badge, ProgressBar, EmptyState } from "../ui.jsx";
 import { shortDate, formatMeters } from "../lib/format.js";
 import Mascot from "./Mascot.jsx";
+import CoachBubble from "./CoachBubble.jsx";
 
 // mirrors server/engine.js WAYPOINTS — the xp payload carries the *current* waypoint
 // name only, so the "next waypoint" caption resolves the following one client-side
@@ -55,7 +56,7 @@ function nextWaypointName(level) {
 }
 
 // waypoint/level card: how far along the trail you are, and what's next
-function WaypointCard({ xp }) {
+function WaypointCard({ xp, species }) {
   const pct = Math.max(0, Math.min(100, xp.progressPct));
   const toGo = Math.max(0, xp.nextLevelM - xp.totalM);
   return (
@@ -63,27 +64,27 @@ function WaypointCard({ xp }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
-            <Milestone size={15} className="shrink-0 text-trail-600" />
+            <Milestone size={15} className="shrink-0 text-trail-700 dark:text-trail-400" />
             <span className="truncate">{xp.name}</span>
             <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">Lv {xp.level}</Badge>
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
             {formatMeters(toGo)} to {nextWaypointName(xp.level)}
             {xp.todayM > 0 ? (
-              <span className="ml-1.5 font-medium text-trail-600 dark:text-trail-400">
+              <span className="ml-1.5 font-medium text-trail-700 dark:text-trail-400">
                 +{xp.todayM} m today
               </span>
             ) : null}
           </p>
         </div>
         <div className="-my-1 shrink-0">
-          <Mascot mood={xp.todayM > 0 ? "happy" : "neutral"} size={48} />
+          <Mascot species={species} mood={xp.todayM > 0 ? "happy" : "idle"} size={48} />
         </div>
       </div>
       <div className="relative mt-3" aria-hidden="true">
         <div className="h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-trail-500 to-iris-500 transition-[width] duration-500"
+            className="h-full rounded-full bg-trail-500 transition-[width] duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -210,6 +211,7 @@ export default function Momentum({ ctx }) {
     return null;
   }
   const { streak } = m;
+  const species = ctx.state?.profile?.mascot;
   const review = ctx.review;
   const activeRoadmaps = m.roadmaps.filter((r) => !r.archived && r.total > 0);
   // freeze budget: the richer payload when the server sends it, else derived from
@@ -229,55 +231,57 @@ export default function Momentum({ ctx }) {
     <div className="space-y-5">
       <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Momentum</h2>
 
-      <Card className="trail-gradient flex items-center justify-between p-4">
-        <div>
+      <Card className="flex items-center justify-between gap-3 p-4 !bg-trail-50 !ring-trail-100 dark:!bg-trail-950/40 dark:!ring-trail-900/50">
+        <div className="shrink-0">
           <div className="flex items-baseline gap-2">
             <span className="text-4xl font-extrabold text-slate-800 dark:text-white">
               {streak.current}
             </span>
             <span className="text-sm font-medium text-slate-500">day streak</span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
-            {streak.atRisk
-              ? "At risk — do one thing today to keep it alive."
-              : m.metGoal
-                ? "Goal met today. Nice."
-                : `${m.todayCount}/${m.dailyGoal} toward today's goal.`}
-          </p>
           {fz?.total ? (
             <>
-              <p className="mt-1 flex items-center gap-1 text-xs text-iris-500">
+              <p className="mt-1 flex items-center gap-1 text-xs text-iris-500 dark:text-iris-300">
                 <Snowflake size={12} /> {fz.left} of {fz.total} freezes left
               </p>
               {fz.earned > 0 ? (
-                <p className="mt-0.5 text-xs font-medium text-iris-500">
+                <p className="mt-0.5 text-xs font-medium text-iris-500 dark:text-iris-300">
                   +{fz.earned} earned on the path
                 </p>
               ) : null}
             </>
           ) : null}
         </div>
-        <Flame
-          size={56}
-          className={streak.atRisk ? "text-slate-300" : "text-iris-500"}
-          strokeWidth={1.5}
-        />
+        {/* the companion carries the streak's temperature — on fire from a week in,
+            drowsy when today would break it — and says so in one line */}
+        <CoachBubble
+          species={species}
+          mood={streak.atRisk ? "sleepy" : streak.current >= 7 ? "fire" : "idle"}
+          size={64}
+          side="right"
+        >
+          {streak.atRisk
+            ? "one small thing keeps it alive."
+            : streak.current > 0
+              ? `${streak.current} day${streak.current === 1 ? "" : "s"} on the path.`
+              : "today makes a fine step one."}
+        </CoachBubble>
       </Card>
 
-      {m.xp ? <WaypointCard xp={m.xp} /> : null}
+      {m.xp ? <WaypointCard xp={m.xp} species={species} /> : null}
 
       <div className="grid grid-cols-3 gap-2.5">
         <Stat
           icon={Trophy}
           label="longest"
           value={streak.longest}
-          tint="bg-iris-50 text-iris-600 dark:bg-iris-950/40"
+          tint="bg-iris-50 text-iris-600 dark:bg-iris-950/40 dark:text-iris-300"
         />
         <Stat
           icon={CalendarCheck}
           label="active days"
           value={m.daysActive}
-          tint="bg-trail-50 text-trail-600 dark:bg-slate-800"
+          tint="bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300"
         />
         <Stat
           icon={Rocket}
@@ -308,7 +312,7 @@ export default function Momentum({ ctx }) {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
-              <CalendarCheck size={15} className="text-trail-600" /> This week
+              <CalendarCheck size={15} className="text-trail-700 dark:text-trail-400" /> This week
             </h3>
             <span className="text-xs text-slate-500">
               {review.completed} done · {review.activeDays}/{review.days} active days
@@ -318,7 +322,7 @@ export default function Momentum({ ctx }) {
             <ul className="space-y-0.5 text-sm text-slate-600 dark:text-slate-300">
               {review.finished.slice(0, 5).map((f, i) => (
                 <li key={i} className="flex items-center gap-1.5">
-                  <Check size={13} className="shrink-0 text-trail-500" />
+                  <Check size={13} className="shrink-0 text-trail-600 dark:text-trail-400" />
                   <span className="truncate">{f.title}</span>
                 </li>
               ))}
@@ -329,9 +333,18 @@ export default function Momentum({ ctx }) {
             </p>
           )}
           {review.reflection ? (
-            <p className="mt-2 text-xs italic text-slate-500 dark:text-slate-400">
-              {review.reflection}
-            </p>
+            <div className="mt-2.5">
+              {/* the payload carries no pace flag — the pace-up branches are the
+                  only reflections that say "last week's pace" (server/review.js) */}
+              <CoachBubble
+                species={species}
+                mood={/last week's pace/.test(review.reflection) ? "happy" : "idle"}
+                size={36}
+                side="left"
+              >
+                {review.reflection}
+              </CoachBubble>
+            </div>
           ) : null}
           {review.advanced.length ? (
             <p className="mt-2 text-xs text-slate-500">Moved: {review.advanced.join(", ")}</p>

@@ -23,32 +23,288 @@ body {
   @apply bg-slate-950 text-slate-100;
 }
 
-/* the brand gradient: green meets violet — Michi's two core colors in balance */
-.trail-gradient {
-  background-image:
-    radial-gradient(120% 100% at 0% 0%, theme("colors.trail.100") 0%, transparent 60%),
-    radial-gradient(120% 100% at 100% 0%, theme("colors.iris.100") 0%, transparent 58%);
-}
-.dark .trail-gradient {
-  background-image:
-    radial-gradient(120% 100% at 0% 0%, theme("colors.trail.900") 0%, transparent 60%),
-    radial-gradient(120% 100% at 100% 0%, theme("colors.iris.900") 0%, transparent 58%);
+/* confetti only exists during a celebrate burst — static (reduced-motion) renders
+   would otherwise show it frozen above the character's head */
+.mascot-svg .mascot-confetti {
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* the mascot's idle: a slow, gentle breath from the base of the body */
-  .mascot-breathe {
+  /* ── mascot engine — every animation the companion knows. Ambient loops:
+     idle (breathe / daruma rock), sleepy sway, fire sway+flicker, locked pulse.
+     One-shot bursts (replayed via a key change on .mascot-chr): happy hop,
+     celebrate bounce+confetti, waypoint rise+gold rings. ── */
+  .mascot-chr,
+  .mascot-tailg,
+  .mascot-eyeso,
+  .mascot-eye2,
+  .mascot-zz,
+  .mascot-flame,
+  .mascot-ring,
+  .mascot-spark,
+  .mascot-conf {
     transform-box: fill-box;
-    transform-origin: 50% 100%;
-    animation: breathe 2.6s ease-in-out infinite;
   }
-  @keyframes breathe {
+  .mascot-chr {
+    transform-origin: 50% 100%;
+  }
+  .mascot-idle .mascot-chr {
+    animation: mascot-breathe 2.8s ease-in-out infinite;
+  }
+  .mascot-sp-daruma.mascot-idle .mascot-chr {
+    animation: mascot-rock 3.4s ease-in-out infinite;
+  }
+  .mascot-happy .mascot-chr {
+    animation: mascot-hop 0.9s ease-out 1 both;
+  }
+  .mascot-happy .mascot-tailg {
+    transform-origin: 50% 80%;
+    animation: mascot-wag 0.5s ease-in-out 3;
+  }
+  .mascot-celebrate .mascot-chr {
+    animation: mascot-bounce 0.9s ease-out 1 both;
+  }
+  .mascot-celebrate .mascot-confetti {
+    opacity: 1;
+  }
+  .mascot-conf {
+    animation: mascot-conf 1.6s ease-in 1 forwards;
+  }
+  .mascot-sleepy .mascot-chr {
+    animation: mascot-sway 3.6s ease-in-out infinite;
+  }
+  .mascot-zz {
+    animation: mascot-zfloat 2.6s ease-in-out infinite;
+  }
+  .mascot-waypoint .mascot-chr {
+    animation: mascot-rise 1.6s ease-in-out 2;
+  }
+  .mascot-ring {
+    transform-origin: 50% 50%;
+    animation: mascot-ringp 1.5s ease-out 2 both;
+  }
+  .mascot-ring2 {
+    animation-delay: 0.4s;
+  }
+  .mascot-glow {
+    animation: mascot-glowp 2s ease-in-out 3;
+  }
+  .mascot-spark {
+    transform-origin: 50% 50%;
+    animation: mascot-spark 1.3s ease-in-out 2 both;
+  }
+  .mascot-fire .mascot-chr {
+    animation: mascot-firesway 2.6s ease-in-out infinite;
+  }
+  .mascot-flame {
+    transform-origin: 50% 100%;
+    animation: mascot-flick 1.1s ease-in-out infinite;
+  }
+  .mascot-flame.mascot-f2 {
+    animation-duration: 0.9s;
+    animation-delay: 0.15s;
+  }
+  .mascot-flame.mascot-f3 {
+    animation-duration: 0.7s;
+    animation-delay: 0.3s;
+  }
+  .mascot-locked .mascot-chr {
+    animation: mascot-lockpulse 2s ease-in-out infinite;
+  }
+  .mascot-tick {
+    animation: mascot-tickp 1.6s ease-in-out infinite;
+  }
+  .mascot-eyeso {
+    transform-origin: 50% 50%;
+    animation: mascot-blink 4.4s infinite;
+  }
+  .mascot-eye2 {
+    transform-origin: 50% 50%;
+    animation: mascot-popin 0.5s ease-out 1 both;
+  }
+  @keyframes mascot-breathe {
     0%,
     100% {
       transform: scale(1, 1);
     }
     50% {
-      transform: scale(1.012, 1.03);
+      transform: scale(1.006, 0.985);
+    }
+  }
+  @keyframes mascot-hop {
+    0%,
+    55%,
+    100% {
+      transform: translateY(0) scale(1, 1);
+    }
+    20% {
+      transform: translateY(-9px) scale(1, 1.05);
+    }
+    38% {
+      transform: translateY(0) scale(1.04, 0.95);
+    }
+  }
+  @keyframes mascot-bounce {
+    0%,
+    60%,
+    100% {
+      transform: translateY(0) scale(1, 1);
+    }
+    22% {
+      transform: translateY(-13px);
+    }
+    42% {
+      transform: translateY(0) scale(1.06, 0.92);
+    }
+  }
+  @keyframes mascot-wag {
+    0%,
+    100% {
+      transform: rotate(0deg);
+    }
+    50% {
+      transform: rotate(13deg);
+    }
+  }
+  @keyframes mascot-sway {
+    0%,
+    100% {
+      transform: rotate(-2.5deg);
+    }
+    50% {
+      transform: rotate(1deg);
+    }
+  }
+  @keyframes mascot-blink {
+    0%,
+    92%,
+    100% {
+      transform: scaleY(1);
+    }
+    96% {
+      transform: scaleY(0.12);
+    }
+  }
+  @keyframes mascot-zfloat {
+    0%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.55;
+    }
+    50% {
+      transform: translateY(-3.5px);
+      opacity: 1;
+    }
+  }
+  @keyframes mascot-rock {
+    0%,
+    100% {
+      transform: rotate(-2.2deg);
+    }
+    50% {
+      transform: rotate(2.2deg);
+    }
+  }
+  @keyframes mascot-conf {
+    0% {
+      transform: translateY(0) rotate(0deg);
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(118px) rotate(300deg);
+      opacity: 0;
+    }
+  }
+  @keyframes mascot-popin {
+    0% {
+      transform: scale(0);
+    }
+    70% {
+      transform: scale(1.3);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  @keyframes mascot-rise {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+  @keyframes mascot-ringp {
+    0% {
+      transform: scale(0.7);
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(1.25);
+      opacity: 0;
+    }
+  }
+  @keyframes mascot-glowp {
+    0%,
+    100% {
+      opacity: 0.1;
+    }
+    50% {
+      opacity: 0.26;
+    }
+  }
+  @keyframes mascot-spark {
+    0% {
+      transform: scale(0.4) rotate(0deg);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.1) rotate(90deg);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(0.6) rotate(180deg);
+      opacity: 0;
+    }
+  }
+  @keyframes mascot-flick {
+    0%,
+    100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(1.14);
+    }
+  }
+  @keyframes mascot-firesway {
+    0%,
+    100% {
+      transform: rotate(-1.2deg) translateY(0);
+    }
+    50% {
+      transform: rotate(1.2deg) translateY(-2px);
+    }
+  }
+  @keyframes mascot-lockpulse {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.015);
+    }
+  }
+  @keyframes mascot-tickp {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 1;
     }
   }
   .pop {

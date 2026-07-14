@@ -19,6 +19,8 @@ import {
 import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
 import { api } from "../lib/api.js";
 import { timeAgo, formatBytes } from "../lib/format.js";
+import Mascot, { SPECIES_LIST } from "./Mascot.jsx";
+import CoachBubble from "./CoachBubble.jsx";
 
 // glyphs for what kind of thing is resting in the trash (Footprints matches the
 // step glyph on Today's plan rows)
@@ -76,6 +78,17 @@ export default function Settings({ ctx, onClose }) {
   const settings = state.settings || {};
 
   const setSetting = (patch) => save((s) => Object.assign(s.settings, patch));
+
+  // the companion picker saves from behind this modal — App's banner is invisible
+  // under the overlay, so a failed save has to surface in the in-modal one
+  const pickCompanion = async (id) => {
+    const ok = await save((s) => (s.profile.mascot = id));
+    if (ok) {
+      setError(null);
+    } else {
+      setError("couldn't save your companion — try again");
+    }
+  };
 
   // the trash list — fetched once when Settings opens (this component only
   // mounts on open, so the effect *is* the lazy load). null = still loading.
@@ -356,8 +369,36 @@ export default function Settings({ ctx, onClose }) {
       </Field>
 
       <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+        <p className="mb-1 text-sm font-medium text-slate-600 dark:text-slate-300">Companion</p>
+        <p className="mb-2 text-xs text-slate-400">Who walks the path with you.</p>
+        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Companion">
+          {SPECIES_LIST.map(({ id, label }) => {
+            const current = (state.profile?.mascot || "shiba") === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={current}
+                disabled={busy}
+                onClick={() => pickCompanion(id)}
+                className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[11px] font-medium transition ${
+                  current
+                    ? "bg-trail-50 text-trail-700 ring-2 ring-trail-500 dark:bg-slate-800 dark:text-trail-300"
+                    : "text-slate-500 ring-1 ring-slate-200 hover:ring-trail-300 dark:ring-slate-700"
+                }`}
+              >
+                <Mascot species={id} mood="idle" size={44} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
         <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
-          <Sparkles size={15} className="text-iris-500" /> Plan with Claude
+          <Sparkles size={15} className="text-iris-500 dark:text-iris-300" /> Plan with Claude
         </p>
         <p className="mb-3 text-xs text-slate-400">
           Export your path, ask Claude to plan or restructure it, paste the reply back. Nothing is
@@ -365,13 +406,17 @@ export default function Settings({ ctx, onClose }) {
         </p>
         <div className="flex items-center gap-3">
           <Button variant="ghost" onClick={copyExport} className="flex-1">
-            {copied ? <Check size={15} className="text-trail-600" /> : <Copy size={15} />}
+            {copied ? (
+              <Check size={15} className="text-trail-700 dark:text-trail-400" />
+            ) : (
+              <Copy size={15} />
+            )}
             {copied ? "Copied ✓" : "Copy export for Claude"}
           </Button>
           <a
             href="/api/export.md"
             download
-            className="shrink-0 text-xs text-slate-400 underline hover:text-trail-600"
+            className="shrink-0 text-xs text-slate-400 underline hover:text-trail-700 dark:hover:text-trail-400"
           >
             download instead
           </a>
@@ -454,7 +499,7 @@ export default function Settings({ ctx, onClose }) {
           </Button>
         )}
         {synced ? (
-          <p role="status" className="mt-2 text-sm text-trail-600 dark:text-trail-400">
+          <p role="status" className="mt-2 text-sm text-trail-700 dark:text-trail-400">
             {synced}
           </p>
         ) : null}
@@ -501,7 +546,7 @@ export default function Settings({ ctx, onClose }) {
                   <button
                     onClick={() => restoreItem(row)}
                     aria-label={`Restore ${row.title}`}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-trail-600 transition hover:bg-trail-50 dark:text-trail-400 dark:hover:bg-slate-800"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-trail-700 transition hover:bg-trail-50 dark:text-trail-400 dark:hover:bg-slate-800"
                   >
                     <Undo2 size={13} /> Restore
                   </button>
@@ -559,7 +604,11 @@ export default function Settings({ ctx, onClose }) {
             className="shrink-0"
             aria-label="Back up now"
           >
-            {backedUp ? <Check size={15} className="text-trail-600" /> : <Archive size={15} />}
+            {backedUp ? (
+              <Check size={15} className="text-trail-700 dark:text-trail-400" />
+            ) : (
+              <Archive size={15} />
+            )}
             {backedUp ? "Backed up ✓" : backupBusy ? "Backing up…" : "Back up now"}
           </Button>
         </div>
@@ -575,6 +624,12 @@ export default function Settings({ ctx, onClose }) {
       ) : null}
 
       <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+        {/* the companion flags the danger zone — a drowsy word of caution, not a modal */}
+        <div className="mb-3">
+          <CoachBubble species={state.profile?.mascot} mood="sleepy" size={36} side="left">
+            careful on this stretch of the trail.
+          </CoachBubble>
+        </div>
         {confirmReset ? (
           <div className="space-y-2">
             <p className="text-sm text-rose-600">
