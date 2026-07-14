@@ -47,7 +47,7 @@ const STEP_MINUTE_OPTS = [
   ["60", "1 hour"],
 ];
 
-const COLORS = ["#F25C05", "#0EA5E9", "#5B67B7", "#F59E0B", "#F43F5E", "#64748B"];
+const COLORS = ["#4E8640", "#0EA5E9", "#B95530", "#F59E0B", "#F43F5E", "#74706A"];
 
 function StepRow({ step, onDone, onDoing, onDelete, onSaveNote, onMove, canUp, canDown, busy }) {
   const done = step.status === "done";
@@ -619,7 +619,7 @@ function RoadmapCard({ rm, ctx, onEdit }) {
       >
         <span
           className="h-9 w-1.5 shrink-0 rounded-full"
-          style={{ background: rm.color || "#F25C05" }}
+          style={{ background: rm.color || "#4E8640" }}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

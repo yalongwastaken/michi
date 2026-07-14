@@ -315,9 +315,11 @@ await act(async () => {
 });
 await new Promise((r) => setTimeout(r, 250));
 
-const navTo = async (label) => {
-  const nav = document.querySelector("nav");
-  const b = [...(nav?.querySelectorAll("button") || [])].find((x) => x.textContent.includes(label));
+// nav now has four tabs — Home | Today | Plan | Progression. Roadmaps and Projects
+// were folded into the Plan tab as a segmented sub-view (aria-label "Plan view"),
+// so navigating to either first opens Plan, then clicks its sub-toggle in <main>.
+const clickIn = async (root, pred) => {
+  const b = [...(root?.querySelectorAll("button") || [])].find(pred);
   if (!b) {
     return false;
   }
@@ -325,8 +327,19 @@ const navTo = async (label) => {
   await new Promise((r) => setTimeout(r, 120));
   return true;
 };
+const navTo = async (label) => {
+  const nav = document.querySelector("nav");
+  if (label === "Roadmaps" || label === "Projects") {
+    if (!(await clickIn(nav, (x) => x.textContent.includes("Plan")))) {
+      return false;
+    }
+    const seg = document.querySelector('[aria-label="Plan view"]');
+    return clickIn(seg, (x) => x.textContent.trim() === label);
+  }
+  return clickIn(nav, (x) => x.textContent.includes(label));
+};
 
-for (const name of ["Roadmaps", "Projects", "Momentum", "Today"]) {
+for (const name of ["Home", "Today", "Plan", "Progression"]) {
   try {
     if (!(await navTo(name))) {
       fails.push(`${name}: no nav button`);
@@ -343,10 +356,10 @@ for (const name of ["Roadmaps", "Projects", "Momentum", "Today"]) {
   }
 }
 
-// the discipline card on Momentum: grade glyph + romaji title, the clean-day
+// the discipline card on Progression: grade glyph + romaji title, the clean-day
 // caption, and seven week dots each carrying an accessible "{day}: {state}"
 try {
-  await navTo("Momentum");
+  await navTo("Progression");
   const main = document.querySelector("main");
   const txt = main?.textContent || "";
   if (!txt.includes("7級") || !txt.includes("7th kyū")) {

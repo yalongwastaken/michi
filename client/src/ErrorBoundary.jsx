@@ -75,13 +75,13 @@ export default class ErrorBoundary extends Component {
             />
             <ellipse cx="33" cy="54" rx="4" ry="2.5" fill="#F4A28C" />
             <ellipse cx="87" cy="54" rx="4" ry="2.5" fill="#F4A28C" />
-            <path d="M36 62 Q60 77 84 62 L84 70 Q60 85 36 70 Z" fill="#F25C05" />
-            <path d="M36 62 Q60 77 84 62 L84 65.5 Q60 80.5 36 65.5 Z" fill="#FF7A2E" />
+            <path d="M36 62 Q60 77 84 62 L84 70 Q60 85 36 70 Z" fill="#B95530" />
+            <path d="M36 62 Q60 77 84 62 L84 65.5 Q60 80.5 36 65.5 Z" fill="#CB744E" />
             <path d="M41 71 Q60 84 79 71 Q60 88 41 71 Z" fill="#DFC49E" opacity="0.5" />
             <circle cx="60" cy="81" r="4" fill="#E8A13C" />
             <circle cx="60" cy="81" r="4" fill="none" stroke="#C97F1E" strokeWidth="1.2" />
             <path d="M60 81.5 v2.6" stroke="#7F2D03" strokeWidth="1.2" strokeLinecap="round" />
-            <g fill="#94A3B8" fontWeight="700">
+            <g fill="#A09C94" fontWeight="700">
               <text x="86" y="24" fontSize="13">
                 z
               </text>

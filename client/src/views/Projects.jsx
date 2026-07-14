@@ -48,8 +48,8 @@ const META = {
   shipped: {
     label: "Shipped",
     icon: Rocket,
-    tint: "text-sky-600",
-    chip: "bg-sky-50 text-sky-600 dark:bg-sky-950/40",
+    tint: "text-emerald-600 dark:text-emerald-400",
+    chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   },
 };
 
@@ -103,9 +103,9 @@ function ProjectCard({ p, ctx, roadmap, onEdit, onMove, canUp, canDown }) {
           </a>
         ) : null}
         {roadmap ? (
-          // the paired learning path — tap to jump to the Roadmaps tab
+          // the paired learning path — tap to jump to the Plan tab (Roadmaps view)
           <button
-            onClick={() => ctx.setTab?.("roadmaps")}
+            onClick={() => ctx.setTab?.("plan")}
             aria-label={`Open roadmap ${roadmap.title} — ${roadmap.pct}% complete`}
             className="inline-flex max-w-[14rem] items-center gap-1 rounded-lg bg-trail-50 px-2 py-1 text-xs text-trail-700 hover:bg-trail-100 dark:bg-slate-800 dark:text-trail-300 dark:hover:bg-slate-700"
           >

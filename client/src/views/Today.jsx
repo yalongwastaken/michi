@@ -29,6 +29,7 @@ import Backlog from "./Backlog.jsx";
 import Dojo from "./Dojo.jsx";
 import Mascot from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
+import PlanWithClaude from "./PlanWithClaude.jsx";
 
 // chips that explain why an item is in today's plan
 const REASON = {
@@ -464,6 +465,65 @@ function Nudges({ items }) {
   );
 }
 
+// "Plan today with Claude" — the export/sync flow surfaced right on the day, not
+// buried in Settings. Auto-expands on the first visit of each day (tracked in
+// localStorage), then sits collapsed so it's one tap away without nagging.
+const PLAN_SEEN_KEY = "michi.planPrompt.lastDay";
+function PlanTodayCard({ ctx, day }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(PLAN_SEEN_KEY) !== day;
+    } catch {
+      return false; // storage blocked (private mode) — start collapsed, still openable
+    }
+  });
+  const markSeen = () => {
+    try {
+      localStorage.setItem(PLAN_SEEN_KEY, day);
+    } catch {
+      /* ignore — the card just won't remember across reloads */
+    }
+  };
+  // the auto-open counts as "seen": a mid-day refresh shouldn't pop it open again
+  useEffect(() => {
+    if (open) {
+      markSeen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Card className="overflow-hidden">
+      <button
+        onClick={() => {
+          markSeen();
+          setOpen((v) => !v);
+        }}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+      >
+        <span className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
+          <Sparkles size={16} className="text-iris-500 dark:text-iris-300" /> Plan today with Claude
+        </span>
+        {open ? (
+          <ChevronDown size={16} className="text-slate-400" />
+        ) : (
+          <ChevronRight size={16} className="text-slate-400" />
+        )}
+      </button>
+      {open ? (
+        <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+          <p className="mb-3 text-xs text-slate-400">
+            Copy the prompt, talk through your day with Claude — your roadmaps and tasks, plus
+            anything else you want to get done today — then paste the reply back to save it.
+          </p>
+          <PlanWithClaude ctx={ctx} />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 export default function Today({ ctx }) {
   const { today, momentum, complete, addTask, busy, state } = ctx;
   const [text, setText] = useState("");
@@ -632,6 +692,8 @@ export default function Today({ ctx }) {
         </div>
       ) : null}
       <Nudges items={topNudge ? ctx.nudges.slice(1) : ctx.nudges} />
+
+      <PlanTodayCard ctx={ctx} day={today.day} />
 
       <form onSubmit={submit} className="flex gap-2">
         <Input

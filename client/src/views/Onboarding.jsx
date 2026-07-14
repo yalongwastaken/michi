@@ -13,7 +13,7 @@ function exampleSeed(state) {
     id: rmId,
     title: "Bare-metal embedded",
     sourceUrl: null,
-    color: "#F25C05",
+    color: "#4E8640",
     archived: false,
     position: 0,
   });

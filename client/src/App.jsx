@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sun, Map, Hammer, Flame, Settings as SettingsIcon, AlertTriangle } from "lucide-react";
+import {
+  Home as HomeIcon,
+  Sun,
+  Map,
+  TrendingUp,
+  Flame,
+  Settings as SettingsIcon,
+  AlertTriangle,
+} from "lucide-react";
 import { api } from "./lib/api.js";
 import { todayKey } from "./lib/format.js";
 import { createQueue } from "./lib/queue.js";
+import Home from "./views/Home.jsx";
 import Today from "./views/Today.jsx";
-import Roadmaps from "./views/Roadmaps.jsx";
-import Projects from "./views/Projects.jsx";
-import Momentum from "./views/Momentum.jsx";
+import Plan from "./views/Plan.jsx";
+import Progression from "./views/Progression.jsx";
 import Settings from "./views/Settings.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Celebration from "./views/Celebration.jsx";
@@ -16,10 +24,10 @@ import { Logo } from "./views/Logo.jsx";
 import { checkCelebrations, confettiBurst } from "./lib/celebrate.js";
 
 const TABS = [
+  { id: "home", label: "Home", icon: HomeIcon },
   { id: "today", label: "Today", icon: Sun },
-  { id: "roadmaps", label: "Roadmaps", icon: Map },
-  { id: "projects", label: "Projects", icon: Hammer },
-  { id: "momentum", label: "Momentum", icon: Flame },
+  { id: "plan", label: "Plan", icon: Map },
+  { id: "progression", label: "Progression", icon: TrendingUp },
 ];
 
 // optimistic helpers: flip an item's status locally so the checkbox responds instantly,
@@ -103,7 +111,7 @@ export default function App({ onTheme }) {
   const [nudges, setNudges] = useState([]);
   const [review, setReview] = useState(null);
   const [aiEnabled, setAiEnabled] = useState(false);
-  const [tab, setTab] = useState("today");
+  const [tab, setTab] = useState("home");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -586,10 +594,10 @@ export default function App({ onTheme }) {
       {errorBanner}
 
       <main className="flex-1 px-4 py-4 pb-28">
+        {tab === "home" && <Home ctx={ctx} />}
         {tab === "today" && <Today ctx={ctx} />}
-        {tab === "roadmaps" && <Roadmaps ctx={ctx} />}
-        {tab === "projects" && <Projects ctx={ctx} />}
-        {tab === "momentum" && <Momentum ctx={ctx} />}
+        {tab === "plan" && <Plan ctx={ctx} />}
+        {tab === "progression" && <Progression ctx={ctx} />}
       </main>
 
       <nav

@@ -18,14 +18,16 @@
 const INK = "#453833";
 const CREAM = "#FFF6E9";
 const BLUSH = "#F4A28C";
-const TRAIL = "#F25C05";
-const TRAIL_LT = "#FF7A2E";
-const TRAIL_DK = "#C43F00";
+// scarf = the app's warm accent (terracotta 土色); markings drop the old indigo
+// for a deeper clay so the companion carries the new palette, not blue + orange
+const TRAIL = "#B95530";
+const TRAIL_LT = "#CB744E";
+const TRAIL_DK = "#843B23";
 const GOLD = "#E8A13C";
 const GOLD_DK = "#C97F1E";
 const GOLD_LT = "#F4B95C";
-const INDIGO = "#2C3456";
-const IRIS = "#4F5D9E";
+const INDIGO = "#30150F";
+const IRIS = "#A2482A";
 
 // ── the shared skeleton (approved geometry — do not eyeball-tweak) ─────────────
 // silhouette = M44 16 + left ear + MID (head sides, body, feet bumps) + right ear + head top
@@ -958,7 +960,7 @@ function Confetti() {
 
 function Zz() {
   return (
-    <g className="mascot-zz" fill="#94A3B8" fontWeight="700">
+    <g className="mascot-zz" fill="#A09C94" fontWeight="700">
       <text x="86" y="24" fontSize="13">
         z
       </text>
