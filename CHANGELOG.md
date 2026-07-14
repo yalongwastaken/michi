@@ -3,6 +3,45 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [1.0.0] — 2026-07-13
+
+Michi 1.0: the workflow is complete (0.9's trash/undo, backlog, notes, links)
+and this release makes the tool trustworthy enough to stop thinking about —
+backups you can see, a day that closes as well as it opens, and a review that
+reflects instead of counts. Adversarially audited end to end.
+
+### Added
+
+- **Backups in the app.** Settings shows your backup health — last backup age,
+  size, how many are kept — with a "Back up now" button (WAL-safe `VACUUM INTO`,
+  same snapshots the nightly timer takes). `GET /api/backups`, `POST /api/backup`.
+- **Evening digest.** `GET /api/digest?mode=evening` closes the day: what you
+  finished (+meters on the path), whether the streak is safe, and up to three
+  things for tomorrow. Pipe it to a notifier at 21:30 next to the 7am one.
+- **A weekly review that reflects.** The "This week" card now offers one true
+  sentence about the week's shape — the big day, the path most walked, or the
+  pace against last week (kindly, when it's down).
+
+### Fixed (final pre-1.0 audit)
+
+- **Per-step deletes now rest in the trash too** — the one delete that
+  bypassed the safety net. Steps restore into their milestone, or 409 with
+  a pointer to restore the whole roadmap.
+- **Undo is now a true undo:** restores re-attach the links the delete had to
+  sever (project→roadmap, task→step/project) when you haven't repointed them,
+  and the undo toast is driven by an exact receipt in the save response
+  (`trashed: [...]`) instead of guessing — two same-titled deletes can no
+  longer restore the wrong one. Multi-item deletes undo as a batch.
+- The undo toast renders above open sheets; trash operations ride the write
+  queue; trash keeps 200 rows so a mass delete can't evict the prior safety
+  net; backup listing ignores imposter directories; a project summary starting
+  with "> " round-trips through the Claude sync.
+
+### Tests
+
+- Server 177 (+12), client 41. Every audit finding shipped with a regression
+  test.
+
 ## [0.9.0] — 2026-07-13
 
 ### Added
@@ -30,8 +69,10 @@ All notable changes to Michi are documented here. Versions follow
 
 - Deleting a roadmap or project left tasks/projects pointing at ghosts
   (`task.stepId`, `task.projectId`, `project.roadmapId`); delete mutators now
-  null every inbound reference (centralized in `lib/mutate.js`), and the server
-  self-heals dangling links on write.
+  null every inbound reference (centralized in `lib/mutate.js`). Server-side, a
+  write carrying a dangling `task.stepId`/`task.projectId` is rejected with a
+  400 naming the ghost; only a dangling `project.roadmapId` is self-healed
+  (nulled) on write.
 
 ### Tests
 
