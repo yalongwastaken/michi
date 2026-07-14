@@ -5,41 +5,49 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Michi's two core colors are balanced and complementary:
-        //   trail (emerald green) = activity & progress — showing up, moving forward
-        //   iris  (violet)        = streaks & achievement — momentum, milestones
-        // Green ~150° and violet ~265° on the wheel sit a harmonious ~115° apart, so
-        // they energize each other without clashing. (Iris is its own purple, clear
-        // of Tsumiki's blue-violet periwinkle.)
+        // Michi's two core colors, a Japanese-classic pairing that flatters the shiba:
+        //   trail (persimmon 柿色)  = activity & progress — showing up, moving forward
+        //   iris  (indigo 藍色)     = streaks & achievement — momentum, milestones
+        // Warm orange and a slightly muted indigo sit near-complementary, so they
+        // energize each other without buzzing the way pure orange/blue would.
+        // trail = persimmon now; name kept to avoid a 40-file diff.
+        // Note the deliberate jump between 600 and 700: 500/600 are the saturated
+        // fills, 700+ are the darkened text shades that pass 4.5:1 on white/tints.
         trail: {
-          50: "#ECFDF5",
-          100: "#D1FAE5",
-          200: "#A7F3D0",
-          300: "#6EE7B7",
-          400: "#34D399",
-          500: "#10B981",
-          600: "#059669",
-          700: "#047857",
-          800: "#065F46",
-          900: "#064E3B",
+          50: "#FEF4EC",
+          100: "#FDE4D0",
+          200: "#FAC7A1",
+          300: "#F6A26B",
+          400: "#F47C36",
+          500: "#F25C05",
+          600: "#E04E00",
+          700: "#A83B00",
+          800: "#7F2D03",
+          900: "#662604",
+          950: "#3D1502",
         },
+        // iris = indigo now; name kept to avoid a 40-file diff. A warm, muted indigo
+        // (not electric blue-violet): airy 100–300 carry dark-mode text, 900/950 tint
+        // dark surfaces.
         iris: {
-          50: "#F5F3FF",
-          100: "#EDE9FE",
-          200: "#DDD6FE",
-          300: "#C4B5FD",
-          400: "#A78BFA",
-          500: "#8B5CF6",
-          600: "#7C3AED",
-          700: "#6D28D9",
-          800: "#5B21B6",
-          900: "#4C1D95",
+          50: "#F3F4FB",
+          100: "#E7E9F7",
+          200: "#CCD1EC",
+          300: "#A9B1DC",
+          400: "#808CC9",
+          500: "#5B67B7",
+          600: "#4F5D9E",
+          700: "#414D83",
+          800: "#353F6A",
+          900: "#2C3456",
+          950: "#1A1F36",
         },
         // warm sand surface so it doesn't feel like a cold finance dashboard
         sand: {
           50: "#FBFAF7",
           100: "#F5F2EC",
           200: "#EAE5DA",
+          300: "#DCD4C3", // the winding path's unwalked trail stroke
         },
       },
       fontFamily: {

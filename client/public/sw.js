@@ -1,7 +1,8 @@
 // sw.js — app-shell cache for the installed PWA. Makes Michi open instantly and
 // survive a flaky connection, WITHOUT ever caching /api (your data stays fresh and
 // private). Bump CACHE to invalidate old shells on the next visit.
-const CACHE = "michi-shell-v2";
+// v3: the persimmon/indigo repaint — recolored shell, icons, and favicon
+const CACHE = "michi-shell-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 

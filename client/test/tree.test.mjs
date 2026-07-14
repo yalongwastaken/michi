@@ -21,6 +21,30 @@ test("roadmapTree nests milestones + steps and computes progress", () => {
   assert.equal(rm.done, 2);
   assert.equal(rm.total, 3);
   assert.equal(rm.pct, 67);
+  assert.equal(rm.complete, false);
+});
+
+test("complete means done === total exactly — pct rounding may say 100 early", () => {
+  const steps = Array.from({ length: 200 }, (_, i) => ({
+    id: `s${i}`,
+    milestoneId: "m",
+    status: i < 199 ? "done" : "todo",
+    position: i,
+  }));
+  const state = {
+    roadmaps: [{ id: "rm", title: "Marathon" }],
+    milestones: [{ id: "m", roadmapId: "rm", title: "Long haul", position: 0 }],
+    steps,
+  };
+  const [rm] = roadmapTree(state);
+  assert.equal(rm.pct, 100); // display math rounds 199/200 up…
+  assert.equal(rm.complete, false); // …but the path is not walked
+  steps[199].status = "done";
+  const [walked] = roadmapTree(state);
+  assert.equal(walked.complete, true);
+  // an empty roadmap is never "complete"
+  const [empty] = roadmapTree({ roadmaps: [{ id: "e" }], milestones: [], steps: [] });
+  assert.equal(empty.complete, false);
 });
 
 test("nextPosition returns max+1 (append to the end)", () => {

@@ -1,27 +1,23 @@
-// Logo.jsx — Michi's winding-trail mark, inline so it inherits currentColor sizing.
+// Logo.jsx — Michi's winding-trail mark: a persimmon path up a cream tile to an
+// indigo summit flag. Flat colors, no gradients; favicon.svg mirrors this exactly.
 export function Logo({ className = "" }) {
   return (
     <svg viewBox="0 0 512 512" className={className} role="img" aria-label="Michi">
-      <rect width="512" height="512" rx="112" fill="#ECFDF5" />
+      <rect width="512" height="512" rx="112" fill="#FFF6E9" />
+      {/* the path: trailhead → milestone → summit */}
       <path
         d="M120 420 C 200 380, 150 300, 240 280 C 330 260, 300 180, 384 150"
         fill="none"
-        stroke="#059669"
-        strokeWidth="34"
-        strokeLinecap="round"
-        strokeDasharray="2 60"
-      />
-      <path
-        d="M120 420 C 200 380, 150 300, 240 280 C 330 260, 300 180, 384 150"
-        fill="none"
-        stroke="#10B981"
-        strokeWidth="14"
+        stroke="#F25C05"
+        strokeWidth="22"
         strokeLinecap="round"
       />
-      <circle cx="120" cy="420" r="22" fill="#047857" />
-      <circle cx="240" cy="280" r="18" fill="#A78BFA" />
-      <circle cx="384" cy="150" r="26" fill="#7C3AED" />
-      <path d="M384 150 L384 96 L420 110 L384 124 Z" fill="#6D28D9" />
+      <circle cx="120" cy="420" r="24" fill="#E04E00" />
+      <circle cx="240" cy="280" r="15" fill="#808CC9" />
+      {/* summit cairn + flag in indigo */}
+      <circle cx="384" cy="150" r="24" fill="#2C3456" />
+      <path d="M384 150 L384 84" stroke="#2C3456" strokeWidth="13" strokeLinecap="round" />
+      <path d="M384 82 L438 100 L384 118 Z" fill="#4F5D9E" />
     </svg>
   );
 }

@@ -29,7 +29,7 @@ export default function UndoToast({ toast, onUndo, onClose }) {
         <button
           type="button"
           onClick={onUndo}
-          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-semibold text-trail-600 hover:bg-trail-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-trail-400 dark:text-trail-400 dark:hover:bg-slate-800"
+          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-semibold text-trail-700 hover:bg-trail-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-trail-400 dark:text-trail-400 dark:hover:bg-slate-800"
         >
           <Undo2 size={14} /> Undo
         </button>

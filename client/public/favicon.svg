@@ -1,25 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#ECFDF5" />
-  <!-- a winding trail climbing from bottom-left to a flag at top-right -->
+  <rect width="512" height="512" rx="112" fill="#FFF6E9" />
+  <!-- a persimmon trail climbing from bottom-left to an indigo summit flag -->
   <path
     d="M120 420 C 200 380, 150 300, 240 280 C 330 260, 300 180, 384 150"
     fill="none"
-    stroke="#059669"
-    stroke-width="34"
-    stroke-linecap="round"
-    stroke-dasharray="2 60"
-  />
-  <path
-    d="M120 420 C 200 380, 150 300, 240 280 C 330 260, 300 180, 384 150"
-    fill="none"
-    stroke="#10B981"
-    stroke-width="14"
+    stroke="#F25C05"
+    stroke-width="22"
     stroke-linecap="round"
   />
-  <!-- milestone dots along the way -->
-  <circle cx="120" cy="420" r="22" fill="#047857" />
-  <circle cx="240" cy="280" r="18" fill="#A78BFA" />
-  <!-- summit flag in violet — green path, violet peak -->
-  <circle cx="384" cy="150" r="26" fill="#7C3AED" />
-  <path d="M384 150 L384 96 L420 110 L384 124 Z" fill="#6D28D9" />
+  <circle cx="120" cy="420" r="24" fill="#E04E00" />
+  <circle cx="240" cy="280" r="15" fill="#808CC9" />
+  <!-- summit cairn + flag in indigo -->
+  <circle cx="384" cy="150" r="24" fill="#2C3456" />
+  <path d="M384 150 L384 84" stroke="#2C3456" stroke-width="13" stroke-linecap="round" />
+  <path d="M384 82 L438 100 L384 118 Z" fill="#4F5D9E" />
 </svg>

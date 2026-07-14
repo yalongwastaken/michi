@@ -83,7 +83,7 @@ const STATE = {
   completions: [
     { id: "c1", day: "2026-06-23", kind: "step", refId: "s1", ts: "2026-06-23T10:00:00Z" },
   ],
-  profile: { name: "Sam", onboarded: true, focusAreas: [] },
+  profile: { name: "Sam", onboarded: true, focusAreas: [], mascot: "shiba" },
   settings: {
     theme: "light",
     dailyGoal: 3,
@@ -275,6 +275,16 @@ try {
     fails.push("Settings: trash rows missing (a step row must display too)");
   } else {
     console.log("  ✓ Settings dialog (trash lists task + step rows)");
+    // the companion picker: nine labelled species buttons, the current one checked
+    const picker = dlg.querySelector('[role="radiogroup"][aria-label="Companion"]');
+    const choices = [...(picker?.querySelectorAll('button[role="radio"]') || [])];
+    if (choices.length !== 9) {
+      fails.push(`Settings: companion picker has ${choices.length} choices, expected 9`);
+    } else if (!choices.some((b) => b.getAttribute("aria-checked") === "true")) {
+      fails.push("Settings: no companion is marked as the current one");
+    } else {
+      console.log("  ✓ Settings companion picker (9 species, current one checked)");
+    }
     const close = dlg.querySelector('button[aria-label="Close"]');
     await act(async () => close?.click());
   }
@@ -357,12 +367,52 @@ try {
   fails.push(`a11y scan: ${e.message}`);
 }
 
-// delete a step → the PUT's `trashed` receipt drives the undo toast, which sits
-// above modals (z-[60]) and restores EVERY receipt row on Undo
+// winding path view: the default roadmap detail — every step is a labelled node
+// button climbing bottom→top, the companion stands on the frontier, and the
+// list/path toggle swaps back to the classic edit affordances
 try {
   // close the backlog sheet the a11y scan left open, then head to Roadmaps
   const sheetClose = document.querySelector('[role="dialog"] button[aria-label="Close"]');
   await act(async () => sheetClose?.click());
+  await navTo("Roadmaps");
+  const labels = [...document.querySelectorAll("main button[aria-label]")].map((b) =>
+    b.getAttribute("aria-label"),
+  );
+  const want = ["GPIO — done", "UART — in progress", "SPI — to do"];
+  const missing = want.filter((w) => !labels.includes(w));
+  const nameless = [...document.querySelectorAll("main button")].filter(
+    (b) => !(b.getAttribute("aria-label") || b.textContent || "").trim(),
+  );
+  if (missing.length) {
+    fails.push(`path view: node labels missing: ${missing.join(", ")}`);
+  } else if (nameless.length) {
+    fails.push(`path view a11y: ${nameless.length} unnamed button(s) on Roadmaps`);
+  } else if (!document.querySelector("main .mascot-svg")) {
+    fails.push("path view: no companion standing on the frontier node");
+  } else {
+    console.log("  ✓ path view: every node labelled + companion on the frontier");
+  }
+  const listBtn = [...document.querySelectorAll('main [aria-label="Roadmap view"] button')].find(
+    (b) => b.textContent === "list",
+  );
+  if (!listBtn) {
+    fails.push("path view: no path/list toggle");
+  } else {
+    await act(async () => listBtn.click());
+    await new Promise((r) => setTimeout(r, 80));
+    if (!document.querySelector('button[title="Delete step"]')) {
+      fails.push("path view: list mode didn't bring back the edit affordances");
+    } else {
+      console.log("  ✓ view toggle: list mode restores edit/reorder affordances");
+    }
+  }
+} catch (e) {
+  fails.push(`path view: ${e.message}`);
+}
+
+// delete a step → the PUT's `trashed` receipt drives the undo toast, which sits
+// above modals (z-[60]) and restores EVERY receipt row on Undo
+try {
   await navTo("Roadmaps");
   const del = document.querySelector('button[title="Delete step"]');
   if (!del) {
