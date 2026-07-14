@@ -3,6 +3,78 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [1.2.0] — 2026-07-13
+
+The companion update: michi stops being an app with a mascot and becomes a
+path you walk with one.
+
+### Added
+
+- **Nine companions, your pick.** Shiba, red panda, daruma, kitsune, tanuki,
+  raccoon, maneki-neko, moon rabbit, and crane chick — one shared, hand-tuned
+  construction (single connected silhouette, one light source, blended legs)
+  so the whole cast reads as a family. Choose yours during onboarding or in
+  Settings → Companion; every render in the app follows your choice.
+- **A living companion.** Idle breathing and blinks; a hop when you check
+  something off; a full celebration on the daily goal; sleepy when the streak
+  is at risk; a golden aura when you reach a waypoint; a flame aura on a 7+
+  day streak; an indigo "locked in" pulse when you clear three items inside
+  an hour. All states honor reduced-motion.
+- **Coach bubbles.** The companion now speaks the app's most important line:
+  the top nudge on Today, the streak verdict and weekly reflection on
+  Momentum, a greeting in onboarding, a warning at the danger zone.
+- **The daruma ritual.** Dated roadmaps carry a small one-eyed daruma; finish
+  the roadmap and it earns its second eye — once, ever, with ceremony. Only
+  transitions you actually walk count: imports and syncs of already-finished
+  roadmaps stay silent.
+- **The winding path.** Roadmaps can render as an actual path — steps as
+  nodes on a snaking trail climbing the screen, milestones as torii gates,
+  the walked segment painted persimmon, and your companion standing on the
+  frontier node (or celebrating at the summit when it's done). Toggle
+  path/list per device; editing stays in list view.
+
+### Fixed (pre-release audit)
+
+- A rituals-first ledger seed could refire every historical streak badge;
+  celebration and ritual dedupe now each gate on their own fields.
+- 100% now means every step done — a 199/200 roadmap no longer opens the
+  daruma's eye early (and can no longer mute the real completion).
+- Companion picker save failures surface in the Settings banner instead of
+  vanishing behind the modal; locked-in mode no longer counts failed or
+  re-toggled completions and expires on its own; path-view labels can't slip
+  under the frontier node; path nodes meet 44px tap targets; simultaneous
+  toasts stack instead of overlapping.
+
+### Tests
+
+- Server 178, client 45 (+ celebrate/ritual regressions, exact-completeness,
+  path-view smoke + a11y coverage). Bundle: +10 KB gzip for the entire cast.
+
+## [1.1.0] — 2026-07-13
+
+The repaint: Michi trades emerald-and-violet for a persimmon + indigo pairing
+that flatters the shiba, and the shiba himself got a proper rebuild.
+
+### Changed
+
+- **New palette: persimmon + indigo.** The `trail` scale is now warm persimmon
+  (#F25C05/#E04E00 core) and `iris` is a muted indigo (#5B67B7/#4F5D9E core) —
+  token names kept so component classes didn't churn. Text shades audited to
+  ~4.5:1 contrast on their actual backgrounds in light and dark mode.
+- **Gradients removed.** The radial `trail-gradient` wash (header, plan card,
+  streak card, onboarding) is gone — the header is plain warm paper with a
+  hairline border, and the plan/streak cards wear a calm solid persimmon tint.
+  The progress ring and waypoint bar are solid fills now too, and the confetti
+  matches the new palette.
+- **Logo + favicon recolored:** cream tile, persimmon path, indigo summit flag;
+  the PWA icons (192/512/maskable/apple-touch) were regenerated to match, and
+  the manifest/theme colors follow suit.
+- **Mascot rebuilt.** Michi the shiba is redrawn sticker-flat on a clean 96×96
+  grid: bold symmetric shapes, no outlines, one shade tone (inner ears, tail
+  underside), cream markings, and a persimmon collar. Same moods, same API.
+- Service worker cache bumped to `michi-shell-v3` so installed apps pick up the
+  recolored shell and icons on next visit.
+
 ## [1.0.0] — 2026-07-13
 
 Michi 1.0: the workflow is complete (0.9's trash/undo, backlog, notes, links)
