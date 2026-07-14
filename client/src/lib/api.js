@@ -55,6 +55,10 @@ export const api = {
   addTask: (task) => req("/api/tasks", { method: "POST", body: JSON.stringify(task) }),
   complete: (kind, id, done = true) =>
     req("/api/complete", { method: "POST", body: JSON.stringify({ kind, id, done }) }),
+  // honor (or unhonor) a kata for today — the kata sibling of complete().
+  // Resolves to the slim state plus a fresh `kataToday` block for reconciling.
+  kataHonor: (id, on = true) =>
+    req("/api/kata/honor", { method: "POST", body: JSON.stringify({ id, on }) }),
   config: () => req("/api/config"),
   // the Today screen pulls queue + momentum + plan + nudges + review in one round-trip;
   // {budget} carries the day's "one more" boost so the rebuilt plan keeps its size

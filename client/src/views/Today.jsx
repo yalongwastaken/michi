@@ -26,6 +26,7 @@ import { uid } from "../lib/uid.js";
 import { parseQuickAdd } from "../lib/quickadd.js";
 import TaskModal from "./TaskModal.jsx";
 import Backlog from "./Backlog.jsx";
+import Dojo from "./Dojo.jsx";
 import Mascot from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
 
@@ -372,6 +373,73 @@ function PlanCard({ ctx, noteOf, onEdit, onToggle, species, speaks }) {
   );
 }
 
+// the 型 strip: today's kata as honor chips — filled persimmon once honored,
+// dashed hairline while waiting. Practiced, not completed: honors ride the same
+// write queue as ticks but never touch the streak or the daily goal.
+function KataStrip({ kata, onHonor, onOpenDojo }) {
+  if (!kata) {
+    return null;
+  }
+  const items = kata.items || [];
+  if (items.length === 0) {
+    // one quiet line, not a card — the dōjō is a door, not a nag
+    return (
+      <button
+        onClick={onOpenDojo}
+        aria-label="no kata yet — visit the dōjō, the training hall"
+        className="block w-full px-1 text-left text-xs text-slate-400 transition hover:text-trail-700 dark:hover:text-trail-400"
+      >
+        no kata yet — visit the <span lang="ja">道場</span> <i>dōjō</i>
+      </button>
+    );
+  }
+  const { honored, total } = kata.today;
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span lang="ja">型</span> <i>kata</i>
+          <span className="font-normal text-slate-400"> — daily forms</span>
+        </h3>
+        {total > 0 ? (
+          <span className="text-xs text-slate-400">
+            {honored} of {total} · honor all for a clean day
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {items.map((it) => (
+          <button
+            key={it.id}
+            onClick={() => onHonor(it.id, !it.honoredToday)}
+            aria-pressed={it.honoredToday}
+            aria-label={`kata: ${it.title} — ${it.honoredToday ? "honored today" : "not honored yet"}`}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${
+              it.honoredToday
+                ? "bg-trail-500 text-white pop"
+                : "border border-dashed border-slate-300 text-slate-500 hover:border-trail-400 hover:text-trail-700 dark:border-slate-600 dark:text-slate-400 dark:hover:border-trail-500 dark:hover:text-trail-400"
+            }`}
+          >
+            {it.honoredToday ? <Check size={12} strokeWidth={3} aria-hidden="true" /> : null}
+            {it.title}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-slate-400">each kata +5 m · clean day +15 m</span>
+        <button
+          onClick={onOpenDojo}
+          aria-label="open the dōjō — the training hall"
+          title="dōjō — the training hall"
+          className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-trail-700 dark:hover:bg-slate-800 dark:hover:text-trail-400"
+        >
+          <span lang="ja">道場</span>
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function Nudges({ items }) {
   if (!items?.length) {
     return null;
@@ -403,6 +471,7 @@ export default function Today({ ctx }) {
   const [showBrowse, setShowBrowse] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showBacklog, setShowBacklog] = useState(false);
+  const [showDojo, setShowDojo] = useState(false);
   const [editTask, setEditTask] = useState(null);
   const submitting = useRef(false); // blocks a double Enter from adding twice
 
@@ -449,6 +518,18 @@ export default function Today({ ctx }) {
       setNow(t);
     }
     return ok;
+  };
+
+  // honoring a kata earns the same happy-burst as a tick — the hop is optimistic,
+  // like toggle(), but honors stay out of doneTimes ("locked in" counts real work)
+  const honorKata = (id, on) => {
+    if (on) {
+      setBurst((b) => b + 1);
+      setFlash(true);
+      clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlash(false), 1100);
+    }
+    return ctx.kataHonor(id, on);
   };
 
   // open the editor with the full stored task (the queue item is a lean projection)
@@ -592,6 +673,8 @@ export default function Today({ ctx }) {
         speaks={!topNudge}
       />
 
+      <KataStrip kata={ctx.kata} onHonor={honorKata} onOpenDojo={() => setShowDojo(true)} />
+
       {browseCount > 0 ? (
         <div>
           <button
@@ -655,6 +738,7 @@ export default function Today({ ctx }) {
       {showNew ? <TaskModal ctx={ctx} onClose={() => setShowNew(false)} /> : null}
       {editTask ? <TaskModal ctx={ctx} task={editTask} onClose={() => setEditTask(null)} /> : null}
       {showBacklog ? <Backlog ctx={ctx} onClose={() => setShowBacklog(false)} /> : null}
+      {showDojo ? <Dojo ctx={ctx} onClose={() => setShowDojo(false)} /> : null}
     </div>
   );
 }

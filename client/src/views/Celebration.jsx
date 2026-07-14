@@ -2,6 +2,7 @@
 // a headline, one supporting line. Auto-dismisses after 3.5s; the whole card is a
 // button so a tap anywhere dismisses it early. aria-live so it's announced politely.
 import { useEffect, useRef } from "react";
+import { jp } from "../ui.jsx";
 import Mascot from "./Mascot.jsx";
 
 // `offset` is the fixed top class — Roadmaps' ritual toast passes top-20 so a
@@ -39,8 +40,10 @@ export default function Celebration({ event, species, onClose, offset = "top-4" 
           size={48}
         />
         <span>
+          {/* jp(): kanji headlines ("clean day — 型 held.", "初段 — shodan.")
+              get their glyphs wrapped in lang="ja" for screen readers */}
           <span className="block font-semibold text-slate-800 dark:text-slate-100">
-            {event.headline}
+            {jp(event.headline)}
           </span>
           {event.subline ? (
             <span className="block text-xs text-slate-500 dark:text-slate-400">

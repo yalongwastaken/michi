@@ -104,6 +104,111 @@ function WaypointCard({ xp, species }) {
   );
 }
 
+// grade ring: an iris donut filling toward the next grade, the grade glyph
+// centered. Decorative — the caption beside it says the same thing in words.
+function GradeRing({ grade }) {
+  const pct = Math.max(0, Math.min(100, grade.pct)) / 100;
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 64 64" className="h-16 w-16 shrink-0" aria-hidden="true">
+      <circle
+        cx="32"
+        cy="32"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        className="stroke-slate-200 dark:stroke-slate-700"
+      />
+      <circle
+        cx="32"
+        cy="32"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeDasharray={`${c * pct} ${c}`}
+        transform="rotate(-90 32 32)"
+        className="stroke-iris-500 transition-[stroke-dasharray] duration-500"
+      />
+      <text
+        x="32"
+        y="37"
+        textAnchor="middle"
+        fontSize="14"
+        fontWeight="700"
+        lang="ja"
+        className="fill-slate-700 dark:fill-slate-100"
+      >
+        {grade.label}
+      </text>
+    </svg>
+  );
+}
+
+// the last 7 days of practice, oldest → newest: clean fills iris, partial sits
+// lighter, none stays a hairline outline, and today-in-progress is dashed
+const WEEK_DOT = {
+  clean: "bg-iris-500",
+  partial: "bg-iris-200 dark:bg-iris-400/40",
+  none: "border border-slate-300 dark:border-slate-600",
+  pending: "border border-dashed border-iris-400 dark:border-iris-300",
+};
+
+// discipline card: the kyū/dan ladder over clean days — every active kata
+// honored — plus the clean streak and a week of dots. Quiet iris, no confetti.
+function DisciplineCard({ discipline, species }) {
+  const { grade, cleanDays, cleanStreak, week } = discipline;
+  return (
+    <Card className="p-4">
+      <div className="flex items-start gap-3">
+        <GradeRing grade={grade} />
+        <div className="min-w-0 flex-1">
+          <h3 className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <span>
+              <span lang="ja">{grade.label}</span> · <i>{grade.romaji}</i>
+            </span>
+            {cleanStreak > 0 ? (
+              <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">
+                {cleanStreak} day{cleanStreak === 1 ? "" : "s"} clean
+              </Badge>
+            ) : null}
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {grade.next ? (
+              <>
+                {cleanDays} clean day{cleanDays === 1 ? "" : "s"} · {grade.next.toGo} to{" "}
+                <span lang="ja">{grade.next.label}</span>
+              </>
+            ) : (
+              <>
+                <span lang="ja">十段</span> · <i>jūdan</i> — the path continues
+              </>
+            )}
+          </p>
+          {/* role="group"/"img" so the labels are actually exposed — a bare span's
+              aria-label is ignored by most screen readers */}
+          <div className="mt-2 flex gap-1.5" role="group" aria-label="last 7 days of kata">
+            {(week || []).map((d) => (
+              <span
+                key={d.day}
+                role="img"
+                aria-label={`${d.day}: ${d.state}`}
+                title={`${d.day}: ${d.state}`}
+                className={`h-3 w-3 rounded-full ${WEEK_DOT[d.state] || WEEK_DOT.none}`}
+              />
+            ))}
+          </div>
+        </div>
+        {/* a week of held form locks the companion in — same corner as the waypoint card */}
+        <div className="-my-1 shrink-0">
+          <Mascot species={species} mood={cleanStreak >= 7 ? "locked" : "idle"} size={48} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // one badge per streak milestone — earned fills iris, the rest wait as dashed outlines
 function BadgeRow({ milestones }) {
   if (!milestones?.length) {
@@ -269,6 +374,12 @@ export default function Momentum({ ctx }) {
       </Card>
 
       {m.xp ? <WaypointCard xp={m.xp} species={species} /> : null}
+
+      {/* shown once the practice exists — active kata today, or any clean-day
+          history. A brand-new walker isn't greeted with 無級 · 0 clean days. */}
+      {m.discipline && ((ctx.kata?.today?.total ?? 0) > 0 || m.discipline.cleanDays > 0) ? (
+        <DisciplineCard discipline={m.discipline} species={species} />
+      ) : null}
 
       <div className="grid grid-cols-3 gap-2.5">
         <Stat

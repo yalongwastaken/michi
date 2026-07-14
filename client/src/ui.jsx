@@ -2,6 +2,29 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
+// a run of Japanese script — CJK punctuation + kana (U+3000–30FF) and the
+// unified ideographs (U+4E00–9FFF); everything the app's glyphs draw from
+const CJK_RUN = /([\u3000-\u30ff\u4e00-\u9fff]+)/;
+
+/** Wrap a string's CJK runs in <span lang="ja"> so screen readers switch voice
+ * for the Japanese glyphs (型, 道場, 十段…) that titles and headlines mix into
+ * English text. Non-strings and pure-Latin strings pass through untouched. */
+export function jp(text) {
+  if (typeof text !== "string" || !CJK_RUN.test(text)) {
+    return text;
+  }
+  // split on a capturing group: odd indices are the captured CJK runs
+  return text.split(CJK_RUN).map((part, i) =>
+    i % 2 === 1 ? (
+      <span key={i} lang="ja">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function Card({ className = "", children, ...rest }) {
   return (
     <div
@@ -215,7 +238,8 @@ export function Modal({ title, onClose, children, footer }) {
         className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-xl ring-1 ring-slate-200 dark:ring-slate-700 focus:outline-none"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
+          {/* jp(): a title like "道場 dōjō — …" gets its glyphs read in Japanese */}
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{jp(title)}</h2>
           <IconButton label="Close" onClick={onClose}>
             <X size={18} />
           </IconButton>
