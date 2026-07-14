@@ -6,7 +6,7 @@
 // Two moods: "morning" (default) looks forward — today's plan and one nudge.
 // "evening" looks back — what got done, whether the streak held, and a small
 // glimpse of tomorrow so the day can end settled.
-import { momentum } from "./engine.js";
+import { momentum, isClean } from "./engine.js";
 import { dayKey, shiftDay } from "./dates.js";
 import { planDay } from "./planner.js";
 import { insights } from "./insights.js";
@@ -33,8 +33,34 @@ function header(today, name, mode) {
   return `Michi — ${dateLabel(today)}${suffix}${name ? ` · ${name}` : ""}`;
 }
 
-// morning: streak state + the day's plan + one nudge
-function morningLines(lines, m, plan, nudges) {
+// ── kata: the daily forms, summarized for both moods ────────────────────────────
+// absent `active` counts as active, matching the model default (see db.js)
+const activeKata = (state) =>
+  (state.kata || []).filter((k) => k.active !== false && k.active !== 0);
+
+/** Tonight's kata standing: honored/total vs the current active set, clean vs the
+ * day's SNAPSHOT (set changed mid-day → the snapshot wins, like everywhere else). */
+function kataEvening(state, today) {
+  const active = activeKata(state);
+  if (active.length === 0) {
+    return null;
+  }
+  const row = (state.kataDays || []).find((r) => r.day === today) || null;
+  const honoredSet = new Set(row?.honoredIds || []);
+  const honored = active.filter((k) => honoredSet.has(k.id));
+  const open = active.find((k) => !honoredSet.has(k.id));
+  return {
+    honored: honored.length,
+    total: active.length,
+    clean: isClean(row),
+    line: isClean(row)
+      ? "Kata: a clean day — 型 held."
+      : `Kata: ${honored.length} of ${active.length} honored${open ? ` — ${open.title} still open` : ""}.`,
+  };
+}
+
+// morning: streak state + the day's forms + the plan + one nudge
+function morningLines(lines, m, plan, nudges, kataTitles) {
   const st = m.streak;
   if (st.current > 0) {
     lines.push(
@@ -42,6 +68,10 @@ function morningLines(lines, m, plan, nudges) {
     );
   } else {
     lines.push("No streak yet — today makes a fine step one.");
+  }
+
+  if (kataTitles.length) {
+    lines.push(`Kata: ${kataTitles.join(" · ")}`);
   }
 
   if (plan.items.length) {
@@ -62,7 +92,7 @@ function morningLines(lines, m, plan, nudges) {
 }
 
 // evening: what happened today + how the streak stands tonight + tomorrow's glimpse
-function eveningLines(lines, m, tomorrow) {
+function eveningLines(lines, m, tomorrow, kata) {
   if (m.todayCount > 0) {
     lines.push(
       `Today: ${m.todayCount} done · +${m.xp.todayM} m on the path${m.metGoal ? " · goal met" : ""}`,
@@ -86,6 +116,10 @@ function eveningLines(lines, m, tomorrow) {
     );
   } else {
     lines.push("No streak on the line — tomorrow starts one.");
+  }
+
+  if (kata) {
+    lines.push(kata.line);
   }
 
   lines.push("");
@@ -124,19 +158,30 @@ export function buildDigest(state, opts = {}) {
       0,
       3,
     );
-    eveningLines(lines, m, tomorrow);
+    const kata = kataEvening(state, today);
+    eveningLines(lines, m, tomorrow, kata);
     return {
       day: today,
       mode,
       text: lines.join("\n"),
       streak: m.streak,
       today: { done: m.todayCount, meters: m.xp.todayM, metGoal: m.metGoal },
+      kata: kata ? { honored: kata.honored, total: kata.total, clean: kata.clean } : null,
       tomorrow,
     };
   }
 
   const plan = planDay(state, opts);
   const nudges = insights(state, { today });
-  morningLines(lines, m, plan, nudges);
-  return { day: today, mode, text: lines.join("\n"), streak: m.streak, plan, insights: nudges };
+  const kataTitles = activeKata(state).map((k) => k.title);
+  morningLines(lines, m, plan, nudges, kataTitles);
+  return {
+    day: today,
+    mode,
+    text: lines.join("\n"),
+    streak: m.streak,
+    kata: kataTitles,
+    plan,
+    insights: nudges,
+  };
 }

@@ -19,13 +19,25 @@
 //   ## Tasks
 //   - [ ] <title> {#id} due:YYYY-MM-DD ~30m step:#<id> project:#<id> every:daily
 //     > <notes, same shape as steps>
+//   ## Kata
+//   - [x] <title> {#id} form:<builtin-id>       ← [x] = ACTIVE (not honored — honoring
+//     > <note, same shape as steps>                is in-app only; sync never writes it)
 import { getFullState, validateState, importAll } from "./db.js";
+import { KATA_LIBRARY } from "./kata.js";
 
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
+// mirrors db.js's MAX_ACTIVE_KATA (not exported there) — preview must warn
+// wherever apply's validateState will reject
+const MAX_ACTIVE_KATA = 5;
+// known library form ids — a form: token outside this set is kept verbatim,
+// but flagged: it's usually Claude misremembering (or inventing) an id
+const KATA_FORM_IDS = new Set(KATA_LIBRARY.map((k) => k.id));
 const MARK_TO_STATUS = { " ": "todo", "~": "doing", x: "done", X: "done" };
 const STATUS_TO_MARK = { todo: " ", doing: "~", done: "x" };
-const COLLECTIONS = ["roadmaps", "milestones", "steps", "projects", "tasks"];
+const COLLECTIONS = ["roadmaps", "milestones", "steps", "projects", "tasks", "kata"];
+// "kata" is its own plural — the naive `${kind}s` would miscount it
+const collectionOf = (kind) => (kind === "kata" ? "kata" : `${kind}s`);
 
 /** Strict calendar-day check — mirrors db.js's isValidDay (not exported there). */
 function isValidDay(s) {
@@ -126,6 +138,10 @@ export function renderExport(state, today) {
     "  there is one, after the title otherwise.",
     "- Notes: attach a `> note` line directly under a step or task to annotate it",
     "  (several `> ` lines in a row make a multi-line note).",
+    "- `## Kata` are daily forms (self-regulation practices): the checkbox means",
+    "  ACTIVE (`[x]`) vs retired (`[ ]`), never daily honoring — that is in-app",
+    "  only. At most 5 may be active. You may suggest new ones; keep any",
+    "  `form:<id>` token as-is.",
     "- Deletions are not possible via sync — never remove or archive anything.",
     "",
     "---",
@@ -228,6 +244,19 @@ export function renderExport(state, today) {
   }
   L.push("");
 
+  // always emit the heading, even when empty — it's where Claude suggests new
+  // forms. The checkbox is ACTIVE vs retired; honoring never leaves the app.
+  L.push("## Kata");
+  for (const k of state.kata || []) {
+    const parts = [`- [${k.active ? "x" : " "}]`, cleanTitle(k.title), anchor(k.id)];
+    if (k.builtinId) {
+      parts.push(`form:${k.builtinId}`);
+    }
+    L.push(parts.join(" "));
+    pushNotes(L, k.note);
+  }
+  L.push("");
+
   return L.join("\n");
 }
 
@@ -316,6 +345,17 @@ const STEP_TOKENS = [
     },
   ],
 ];
+const KATA_TOKENS = [
+  [
+    /^form:([\w-]+)$/,
+    (item, v, warn) => {
+      item.builtinId = v; // which library form it came from (kept verbatim)
+      if (!KATA_FORM_IDS.has(v)) {
+        warn(`unknown form id "${v}" kept as-is`);
+      }
+    },
+  ],
+];
 
 /** Anchored mode: consume every recognized token in the tail; return the leftovers. */
 function takeTokens(tail, tokens, item, warn) {
@@ -354,7 +394,15 @@ function scanTokens(body, tokens, item, warn) {
 export function parseSync(markdown) {
   const warnings = [];
   const { warn, flush } = warnCollector(warnings);
-  const out = { roadmaps: [], milestones: [], steps: [], projects: [], tasks: [], warnings };
+  const out = {
+    roadmaps: [],
+    milestones: [],
+    steps: [],
+    projects: [],
+    tasks: [],
+    kata: [],
+    warnings,
+  };
 
   let lines = String(markdown ?? "")
     .replace(/\r\n?/g, "\n")
@@ -432,6 +480,10 @@ export function parseSync(markdown) {
       Object.assign(cur, { section: "tasks", roadmap: null, milestone: null });
       continue;
     }
+    if (/^##\s+Kata\s*$/i.test(line)) {
+      Object.assign(cur, { section: "kata", roadmap: null, milestone: null });
+      continue;
+    }
 
     if ((m = line.match(/^[-*]\s*\[([ xX~])\]\s*(.+)$/))) {
       const status = MARK_TO_STATUS[m[1]];
@@ -458,6 +510,17 @@ export function parseSync(markdown) {
         }
         out.tasks.push(item);
         cur.note = item; // a following blockquote annotates this task
+      } else if (cur.section === "kata") {
+        // the checkbox means ACTIVE ([x]) vs retired ([ ]) — never daily honoring.
+        // `[~]` (doing) counts as active too: a form being practiced is a form held
+        const item = { id, active: m[1] !== " " };
+        fill(item, KATA_TOKENS);
+        if (!item.title) {
+          warn("kata with an empty title skipped");
+          continue;
+        }
+        out.kata.push(item);
+        cur.note = item; // a following blockquote annotates this kata
       } else if (cur.milestone != null) {
         const item = { id, status, milestoneIndex: cur.milestone };
         fill(item, STEP_TOKENS);
@@ -584,13 +647,14 @@ export function planSync(parsed, state) {
   const warnings = [];
   const { warn, flush } = warnCollector(warnings);
   const now = new Date().toISOString();
-  const creates = { roadmaps: [], milestones: [], steps: [], projects: [], tasks: [] };
+  const creates = { roadmaps: [], milestones: [], steps: [], projects: [], tasks: [], kata: [] };
   const byId = {
     roadmap: new Map((state.roadmaps || []).map((x) => [x.id, x])),
     milestone: new Map((state.milestones || []).map((x) => [x.id, x])),
     step: new Map((state.steps || []).map((x) => [x.id, x])),
     project: new Map((state.projects || []).map((x) => [x.id, x])),
     task: new Map((state.tasks || []).map((x) => [x.id, x])),
+    kata: new Map((state.kata || []).map((x) => [x.id, x])),
   };
   // unknown doc anchors become fresh ids, but same-doc references (a task's
   // step:#/project:# pointing at an item created above) must still resolve
@@ -911,6 +975,63 @@ export function planSync(parsed, state) {
     });
   }
 
+  for (const k of parsed.kata || []) {
+    const existing = k.id ? byId.kata.get(k.id) : matchByTitle("kata", state.kata, k.title);
+    if (existing) {
+      // the checkbox is the active flag; notes map onto the single `note` column
+      recordUpdate("kata", existing, k.title, {
+        title: k.title,
+        note: k.notes,
+        builtinId: k.builtinId,
+        active: k.active,
+      });
+      continue;
+    }
+    if (
+      !k.id &&
+      mergeIntoCreate(
+        "kata",
+        creates.kata,
+        k.title,
+        () => true,
+        (row) => {
+          row.active = k.active;
+          if (k.builtinId !== undefined) {
+            row.builtinId = k.builtinId;
+          }
+          if (k.notes !== undefined) {
+            row.note = k.notes;
+          }
+        },
+      )
+    ) {
+      continue;
+    }
+    const id = uid("kata");
+    if (k.id) {
+      demote("kata", k.id, k.title, id);
+    }
+    creates.kata.push({
+      id,
+      title: k.title,
+      note: k.notes ?? null,
+      builtinId: k.builtinId ?? null,
+      active: k.active,
+      position: nextPosition(state.kata, creates.kata),
+      createdAt: now,
+    });
+  }
+
+  // preview must warn where apply will reject: count the ACTIVE kata this plan
+  // would leave behind — existing rows through their pending active flip (accum
+  // carries the merged doc view), plus the creates
+  const activeKata =
+    (state.kata || []).filter((k) => accum.get(`kata:${k.id}`)?.fields.active ?? k.active).length +
+    creates.kata.filter((k) => k.active).length;
+  if (activeKata > MAX_ACTIVE_KATA) {
+    warn(`this plan would activate ${activeKata} kata — apply will be rejected; retire some first`);
+  }
+
   // a merged (or unchanged) line can leave a row with nothing to change — drop it
   const updates = [...updateByKey.values()].filter((u) => Object.keys(u.changes).length > 0);
   flush();
@@ -951,10 +1072,14 @@ export function applySync(parsed) {
     steps: applyTo("step", state.steps, plan.creates.steps),
     projects: applyTo("project", state.projects, plan.creates.projects),
     tasks: applyTo("task", state.tasks, plan.creates.tasks),
+    kata: applyTo("kata", state.kata, plan.creates.kata),
     profile: state.profile,
     settings: state.settings,
     completions: state.completions, // preserved as-is — sync never touches history
+    kataDays: state.kataDays, // honor history too — the checkbox is only "active"
   };
+  // the ≤5-active kata rule (among everything else) is enforced right here — a
+  // reply that activates a sixth form fails atomically, before anything lands
   const bad = validateState(merged);
   if (bad) {
     throw new Error(`sync would produce an invalid state: ${bad}`);
@@ -966,7 +1091,7 @@ export function applySync(parsed) {
   );
   const updatedCounts = Object.fromEntries(COLLECTIONS.map((k) => [k, 0]));
   for (const u of plan.updates) {
-    updatedCounts[`${u.kind}s`]++;
+    updatedCounts[collectionOf(u.kind)]++;
   }
   return { state: fresh, applied: { createdCounts, updatedCounts }, warnings: plan.warnings };
 }

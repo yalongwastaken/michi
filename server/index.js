@@ -20,12 +20,15 @@ import {
   restoreTrash,
   purgeTrash,
   purgeAllTrash,
+  getKata,
+  getKataToday,
+  setKataHonored,
   ConflictError,
 } from "./db.js";
 import { buildToday, momentum } from "./engine.js";
 import { dayKey } from "./dates.js";
 import { planDay } from "./planner.js";
-import { insights } from "./insights.js";
+import { insights, kataSuggestions } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
@@ -153,23 +156,66 @@ app.post("/api/complete", (req, res) => {
   }
 });
 
+// honor (or unhonor) a kata for the day — the kata sibling of /api/complete.
+// Honoring writes a completions row (kind "kata") and snapshots/updates the day's
+// kata_days ledger; the response is the slim state plus the fresh kata block.
+app.post("/api/kata/honor", (req, res) => {
+  const { id, on = true } = req.body || {};
+  if (!id) {
+    return res.status(400).json({ error: "id is required" });
+  }
+  // bool-ish only, mirroring validateState's kata.active rule: a truthy string
+  // like "false" silently honoring a form would be a surprise — reject it
+  if (typeof on !== "boolean" && on !== 0 && on !== 1) {
+    return res.status(400).json({ error: "on must be a boolean" });
+  }
+  const k = getKata(id);
+  if (!k) {
+    return res.status(404).json({ error: "could not find that kata" });
+  }
+  if (!k.active) {
+    return res
+      .status(400)
+      .json({ error: "that kata is retired — only active kata can be honored" });
+  }
+  // a valid ?day override is test/tooling sugar; everyday honors land on today.
+  // Backdating an honest "I held the form yesterday" is fine — the future isn't:
+  // a forward snapshot would be a fiction the day's ledger then defends.
+  const day =
+    typeof req.body?.day === "string" && req.body.day === resolveDay(req.body.day)
+      ? req.body.day
+      : undefined;
+  if (day && day > dayKey()) {
+    return res.status(400).json({ error: "can't honor a kata in the future" });
+  }
+  try {
+    const state = day ? setKataHonored(id, !!on, undefined, day) : setKataHonored(id, !!on);
+    res.json({ ...state, kataToday: getKataToday(day) });
+  } catch (e) {
+    console.warn("POST /api/kata/honor failed:", e.message);
+    res.status(400).json({ error: "could not update that kata" });
+  }
+});
+
 // a positive, sane minutes budget, else undefined (planner falls back to settings)
 function resolveBudget(q) {
   const b = Number(q);
   return Number.isFinite(b) && b > 0 && b <= 1440 ? { budgetMin: b } : {};
 }
 
-// the daily queue — "what should I work on today?"
+// the daily queue — "what should I work on today?" (+ the day's kata block)
 app.get("/api/today", (req, res) => {
   // a negative finite limit would reach slice(0, -1) and silently drop items —
   // out-of-range falls back to the default, same policy as resolveBudget
   const limit = Number(req.query.limit);
-  res.json(
-    buildToday(getState(), {
-      today: resolveDay(req.query.day),
+  const day = resolveDay(req.query.day);
+  res.json({
+    ...buildToday(getState(), {
+      today: day,
       limit: Number.isFinite(limit) && limit >= 0 ? limit : undefined,
     }),
-  );
+    kata: getKataToday(day),
+  });
 });
 
 // momentum: streak, heatmap, roadmap/project progress
@@ -207,6 +253,9 @@ app.get("/api/dashboard", (req, res, next) => {
       plan: planDay(state, planOpts(state, day, resolveBudget(req.query.budget))),
       insights: insights(state, { today: day }),
       review: weeklyReview(state, { today: day }),
+      kata: getKataToday(day),
+      // library suggestions, rendered in the dōjō — deliberately not nudges
+      kataSuggestions: kataSuggestions(state, { today: day }),
     });
   } catch (e) {
     next(e);

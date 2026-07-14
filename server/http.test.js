@@ -460,3 +460,149 @@ test("unknown API paths get a clean JSON 404, not the SPA shell", async () => {
   assert.equal(res.status, 404);
   assert.deepEqual(await res.json(), { error: "not found" });
 });
+
+// ── kata over HTTP ──────────────────────────────────────────────────────────────
+
+test("kata: honor happy path + guards, and the today/dashboard/momentum blocks", async () => {
+  // a clean slate: earlier tests completed real work TODAY, which would muddy
+  // the goal/streak/heatmap assertions below
+  assert.equal((await send("POST", "/api/reset", {})).status, 200);
+  const put = await send("PUT", "/api/state", {
+    kata: [
+      { id: "K1", title: "greyscale phone", builtinId: "greyscale-phone" },
+      { id: "K2", title: "shutdown ritual", builtinId: "shutdown" },
+      { id: "K3", title: "retired form", active: false },
+    ],
+  });
+  assert.equal(put.status, 200);
+  assert.equal((await put.json()).kata.length, 3);
+
+  // guards: missing id 400, unknown id 404, retired kata 400
+  assert.equal((await send("POST", "/api/kata/honor", {})).status, 400);
+  assert.equal((await send("POST", "/api/kata/honor", { id: "ghost" })).status, 404);
+  const retired = await send("POST", "/api/kata/honor", { id: "K3" });
+  assert.equal(retired.status, 400);
+  assert.match((await retired.json()).error, /active/);
+
+  // honor one — the response is the slim state plus the fresh kata block
+  const res = await send("POST", "/api/kata/honor", { id: "K1" });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.ok(!("completions" in body)); // lean write, like /api/complete
+  assert.ok(!("kataDays" in body));
+  assert.deepEqual(body.kataToday.today, { honored: 1, total: 2, clean: false });
+  assert.deepEqual(
+    body.kataToday.items.find((i) => i.id === "K1"),
+    {
+      id: "K1",
+      title: "greyscale phone",
+      builtinId: "greyscale-phone",
+      active: true,
+      honoredToday: true,
+    },
+  );
+
+  // /api/today and /api/dashboard both carry the same kata block
+  const today = await (await api("/api/today")).json();
+  assert.deepEqual(today.kata.today, { honored: 1, total: 2, clean: false });
+  assert.equal(today.kata.items.length, 2); // active kata only
+  const dash = await (await api("/api/dashboard")).json();
+  assert.deepEqual(dash.kata, today.kata);
+  assert.ok(Array.isArray(dash.kataSuggestions)); // library suggestions, not nudges
+  const d = dash.momentum.discipline;
+  assert.equal(d.cleanDays, 0);
+  assert.equal(d.grade.label, "無級");
+  assert.equal(d.week.length, 7);
+  assert.equal(d.week.at(-1).state, "pending"); // today, one of two honored
+
+  // the second honor completes a clean day
+  const clean = await send("POST", "/api/kata/honor", { id: "K2" });
+  assert.deepEqual((await clean.json()).kataToday.today, { honored: 2, total: 2, clean: true });
+  const m = await (await api("/api/momentum")).json();
+  assert.equal(m.discipline.cleanDays, 1);
+  assert.equal(m.discipline.cleanStreak, 1);
+  assert.equal(m.discipline.grade.label, "10級");
+  assert.equal(m.discipline.week.at(-1).state, "clean");
+  // the invariant: kata never meet the goal or carry the streak…
+  assert.equal(m.todayCount, 0);
+  assert.equal(m.metGoal, false);
+  assert.equal(m.streak.current, 0);
+  // …but the heatmap and XP see the practice (2 honors × 5 m + 15 m clean bonus)
+  assert.equal(m.heat.at(-1).count, 2);
+  assert.equal(m.xp.todayM, 25);
+  assert.equal(m.xp.totalM, 25);
+
+  // un-honoring retracts the credit and the clean day
+  const undo = await send("POST", "/api/kata/honor", { id: "K2", on: false });
+  assert.deepEqual((await undo.json()).kataToday.today, { honored: 1, total: 2, clean: false });
+  assert.equal((await (await api("/api/momentum")).json()).xp.todayM, 5);
+});
+
+test("kata: the ≤5-active rule holds over PUT and sync apply alike", async () => {
+  const five = Array.from({ length: 5 }, (_, i) => ({ id: `F${i}`, title: `form ${i}` }));
+  const bad = await send("PUT", "/api/state", {
+    kata: [...five, { id: "F6", title: "one too many" }],
+  });
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /at most 5 kata/);
+  assert.equal((await send("PUT", "/api/state", { kata: five })).status, 200);
+  // sync: activating a sixth is a clean 400, a retired sixth lands fine
+  const res = await send("POST", "/api/sync/apply", { markdown: "## Kata\n- [x] a sixth form\n" });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /at most 5 kata/);
+  const ok = await send("POST", "/api/sync/apply", { markdown: "## Kata\n- [ ] a sixth form\n" });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).applied.createdCounts.kata, 1);
+});
+
+test("kata: a delete-by-absence is trashed and restorable over HTTP", async () => {
+  await send("PUT", "/api/state", { kata: [{ id: "KT", title: "doomed form", note: "keep me" }] });
+  await api("/api/trash", { method: "DELETE" }); // flush earlier leftovers
+  const wipe = await send("PUT", "/api/state", { kata: [] });
+  assert.equal(wipe.status, 200);
+  assert.deepEqual(
+    (await wipe.json()).trashed.map((r) => [r.kind, r.title]),
+    [["kata", "doomed form"]],
+  );
+  const [row] = (await (await api("/api/trash")).json()).items;
+  assert.equal(row.kind, "kata");
+  assert.equal(row.counts, null); // nothing to count on a lone kata
+  const restore = await send("POST", "/api/trash/restore", { id: row.id });
+  assert.equal(restore.status, 200);
+  const body = await restore.json();
+  assert.equal(body.restored.kind, "kata");
+  const back = body.state.kata.find((k) => k.id === "KT");
+  assert.equal(back.note, "keep me");
+  // export/import round-trips the dōjō AND the honor ledger over the wire
+  await send("POST", "/api/kata/honor", { id: "KT" });
+  const exported = await (await api("/api/export")).json();
+  assert.equal(exported.kataDays.length, 1);
+  await send("POST", "/api/reset", {});
+  const imp = await send("POST", "/api/import", exported);
+  assert.equal(imp.status, 200);
+  assert.deepEqual((await imp.json()).kataDays, exported.kataDays);
+});
+
+test("kata honor: no future days, `on` must be boolean-ish, backdating still lands", async () => {
+  await send("POST", "/api/reset", {});
+  await send("PUT", "/api/state", { kata: [{ id: "KB", title: "backdated form" }] });
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); // TZ=UTC
+
+  // tomorrow is a fiction the day's ledger would then defend — a clean 400
+  const future = await send("POST", "/api/kata/honor", { id: "KB", day: day(1) });
+  assert.equal(future.status, 400);
+  assert.match((await future.json()).error, /future/);
+
+  // `on` mirrors validateState's boolean handling: a truthy string like "false"
+  // silently honoring would be a surprise — reject anything but a clear bool/0/1
+  const stringy = await send("POST", "/api/kata/honor", { id: "KB", on: "false" });
+  assert.equal(stringy.status, 400);
+  assert.match((await stringy.json()).error, /boolean/);
+
+  // …while an honest backdate to yesterday still lands, ledger and all
+  const past = await send("POST", "/api/kata/honor", { id: "KB", day: day(-1) });
+  assert.equal(past.status, 200);
+  assert.deepEqual((await past.json()).kataToday.today, { honored: 1, total: 1, clean: true });
+  const exported = await (await api("/api/export")).json();
+  assert.deepEqual(exported.kataDays, [{ day: day(-1), activeIds: ["KB"], honoredIds: ["KB"] }]);
+});

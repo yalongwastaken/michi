@@ -148,19 +148,19 @@ export function activityByDay(state) {
 
 /**
  * Aggregate a raw completions log into the summary shape momentum reads:
- * day → {tasks, steps} counts plus lifetime totals. db.getActivitySummary()
+ * day → {tasks, steps, kata} counts plus lifetime totals. db.getActivitySummary()
  * returns the exact same shape from its incremental cache — this is the pure
  * fallback for when no source is registered (unit tests, plain function calls).
  */
 export function summarizeActivity(completions = []) {
   const byDay = new Map();
-  const totals = { tasks: 0, steps: 0 };
+  const totals = { tasks: 0, steps: 0, kata: 0 };
   for (const c of completions) {
     if (!c?.day) {
       continue;
     }
-    const key = c.kind === "step" ? "steps" : "tasks";
-    const rec = byDay.get(c.day) || { tasks: 0, steps: 0 };
+    const key = c.kind === "step" ? "steps" : c.kind === "kata" ? "kata" : "tasks";
+    const rec = byDay.get(c.day) || { tasks: 0, steps: 0, kata: 0 };
     rec[key] += 1;
     totals[key] += 1;
     byDay.set(c.day, rec);
@@ -227,12 +227,111 @@ export function longestStreak(daySet) {
   return longest;
 }
 
+// ── kata: daily forms and the clean-day math ──────────────────────────────────
+// A kata_days row is the honor ledger for one local day: active_ids is a snapshot
+// of the active set taken at the FIRST honor of the day, honored_ids grows/shrinks
+// with the toggle. A day is "clean" when the snapshot was honored in full — the
+// snapshot wins over later edits to the active set, so adding a sixth form at
+// 11 pm can't retroactively dirty a day you already completed.
+
+/** Was this kata_days row a clean day? (null/absent row → false) */
+export function isClean(row) {
+  const active = row?.activeIds;
+  const honored = row?.honoredIds;
+  if (!Array.isArray(active) || !Array.isArray(honored) || active.length === 0) {
+    return false;
+  }
+  const h = new Set(honored);
+  return active.every((id) => h.has(id));
+}
+
+/**
+ * Consecutive clean days ending today-or-yesterday. Same grace as computeStreak —
+ * today not being clean YET doesn't break the run, it just doesn't count — but
+ * streak freezes deliberately do NOT apply: a kata is honored daily or it isn't.
+ */
+export function computeCleanStreak(cleanSet, today) {
+  let cursor = cleanSet.has(today) ? today : prevDay(today);
+  let n = 0;
+  while (cleanSet.has(cursor)) {
+    n += 1;
+    cursor = prevDay(cursor);
+  }
+  return n;
+}
+
+// ── discipline grades: the kyū/dan ladder over cumulative clean days ──────────
+// Triangular kyū ramp (1, 3, 6, … 55 clean days for 10級→1級), then the dan ranks
+// stretch out. Cumulative and lifetime — a broken streak never demotes you.
+const KYU_AT = [1, 3, 6, 10, 15, 21, 28, 36, 45, 55];
+const KYU_ORD = ["10th", "9th", "8th", "7th", "6th", "5th", "4th", "3rd", "2nd", "1st"];
+const KYU_WORD = [
+  "tenth",
+  "ninth",
+  "eighth",
+  "seventh",
+  "sixth",
+  "fifth",
+  "fourth",
+  "third",
+  "second",
+  "first",
+];
+const DAN = [
+  ["初段", "shodan", "first dan", 70],
+  ["二段", "nidan", "second dan", 90],
+  ["三段", "sandan", "third dan", 115],
+  ["四段", "yondan", "fourth dan", 145],
+  ["五段", "godan", "fifth dan", 180],
+  ["六段", "rokudan", "sixth dan", 220],
+  ["七段", "nanadan", "seventh dan", 265],
+  ["八段", "hachidan", "eighth dan", 315],
+  ["九段", "kudan", "ninth dan", 370],
+  ["十段", "jūdan", "the path continues", 430], // the cap — there is no "next"
+];
+export const GRADE_LADDER = [
+  { n: 0, label: "無級", romaji: "mukyū", english: "ungraded", at: 0 },
+  ...KYU_AT.map((at, i) => ({
+    n: 10 - i,
+    label: `${10 - i}級`,
+    romaji: `${KYU_ORD[i]} kyū`,
+    english: `${KYU_WORD[i]} grade`,
+    at,
+  })),
+  ...DAN.map(([label, romaji, english, at], i) => ({ n: i + 1, label, romaji, english, at })),
+];
+
+/**
+ * The discipline grade for a cumulative clean-day count.
+ * @returns {{n, label, romaji, english, cleanDays, next: {label, at, toGo}|null, pct}}
+ */
+export function grade(cleanDays) {
+  const days = Number.isFinite(cleanDays) && cleanDays > 0 ? Math.floor(cleanDays) : 0;
+  let idx = 0;
+  while (idx + 1 < GRADE_LADDER.length && days >= GRADE_LADDER[idx + 1].at) {
+    idx += 1;
+  }
+  const cur = GRADE_LADDER[idx];
+  const next = GRADE_LADDER[idx + 1] || null;
+  return {
+    n: cur.n,
+    label: cur.label,
+    romaji: cur.romaji,
+    english: cur.english,
+    cleanDays: days,
+    next: next ? { label: next.label, at: next.at, toGo: next.at - days } : null,
+    pct: next ? Math.round(((days - cur.at) / (next.at - cur.at)) * 100) : 100,
+  };
+}
+
 // ── XP: distance walked on your path ──────────────────────────────────────────
 // The metaphor: every completion is meters walked. A roadmap step is a bigger
-// stride than a one-off task; levels are WAYPOINTS along the trail. Cumulative
-// distance for 1-based level n is 100·n·(n+1)/2 m — the triangular ramp makes the
-// early waypoints arrive fast and the later ones stretch out.
-export const METERS_PER = { step: 25, task: 10 };
+// stride than a one-off task, a kata honor a small deliberate pace; levels are
+// WAYPOINTS along the trail. Cumulative distance for 1-based level n is
+// 100·n·(n+1)/2 m — the triangular ramp makes the early waypoints arrive fast
+// and the later ones stretch out.
+export const METERS_PER = { step: 25, task: 10, kata: 5 };
+export const CLEAN_DAY_METERS = 15; // bonus for honoring every active kata in a day
 
 const WAYPOINTS = [
   "Trailhead",
@@ -253,9 +352,9 @@ const WAYPOINTS = [
  * badge once earned stays earned even after the current streak breaks. */
 export const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100, 180, 365];
 
-/** Meters earned by {tasks, steps} completion counts. */
-export function metersFor({ tasks = 0, steps = 0 } = {}) {
-  return tasks * METERS_PER.task + steps * METERS_PER.step;
+/** Meters earned by {tasks, steps, kata} completion counts. */
+export function metersFor({ tasks = 0, steps = 0, kata = 0 } = {}) {
+  return tasks * METERS_PER.task + steps * METERS_PER.step + kata * METERS_PER.kata;
 }
 
 /** Cumulative meters needed to reach 1-based level n (level 0 starts at 0 m). */
@@ -301,11 +400,14 @@ export function waypointName(level) {
 
 /**
  * The full xp block for the momentum payload, from lifetime + today's counts.
- * @param {{tasks:number, steps:number}} totals lifetime completion counts
- * @param {{tasks:number, steps:number}} [todayCounts] today's completion counts
+ * Kata completions ride along in the counts (5 m each), and every clean day —
+ * all active kata honored — earns a CLEAN_DAY_METERS bonus on top.
+ * @param {{tasks:number, steps:number, kata:number}} totals lifetime counts
+ * @param {{tasks:number, steps:number, kata:number}} [todayCounts] today's counts
+ * @param {{cleanDays:number, todayClean:boolean}} [kataBonus] clean-day bonuses
  */
-export function xpSummary(totals, todayCounts) {
-  const totalM = metersFor(totals);
+export function xpSummary(totals, todayCounts, { cleanDays = 0, todayClean = false } = {}) {
+  const totalM = metersFor(totals) + cleanDays * CLEAN_DAY_METERS;
   let level = 0;
   while (levelThreshold(level + 1) <= totalM) {
     level += 1;
@@ -319,7 +421,7 @@ export function xpSummary(totals, todayCounts) {
     levelStartM,
     nextLevelM,
     progressPct: Math.round(((totalM - levelStartM) / (nextLevelM - levelStartM)) * 100),
-    todayM: metersFor(todayCounts || {}),
+    todayM: metersFor(todayCounts || {}) + (todayClean ? CLEAN_DAY_METERS : 0),
   };
 }
 
@@ -389,26 +491,72 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
   const { byDay, totals } = activitySource
     ? activitySource()
     : summarizeActivity(state.completions);
-  const countOn = (day) => {
+  // THE kata invariant, split deliberately: the daily goal and the streak count
+  // only real work (tasks + steps) — five checkbox honors must never "meet the
+  // goal" or carry a streak — while the heatmap and XP count showing up, kata
+  // included. Discipline has its own ladder below, fed by clean days alone.
+  const workOn = (day) => {
     const rec = byDay.get(day);
     return rec ? rec.tasks + rec.steps : 0;
   };
-  const todayCount = countOn(today);
+  const heatOn = (day) => {
+    const rec = byDay.get(day);
+    return rec ? rec.tasks + rec.steps + (rec.kata || 0) : 0;
+  };
+  const todayCount = workOn(today);
+
+  // kata clean days (for XP bonuses + the discipline block); kata_days rides in
+  // `state` — it's tiny (one row per honored day), unlike the completions log
+  const kataDays = state.kataDays || [];
+  const rowsByDay = new Map(kataDays.map((r) => [r.day, r]));
+  const cleanSet = new Set(kataDays.filter(isClean).map((r) => r.day));
 
   // the streak's freeze budget = configured base + waypoint earn-back (xp first:
   // the earned count derives from the level)
-  const xp = xpSummary(totals, byDay.get(today));
+  const xp = xpSummary(totals, byDay.get(today), {
+    cleanDays: cleanSet.size,
+    todayClean: cleanSet.has(today),
+  });
   const earned = earnedFreezes(xp.level);
   const freezes = baseFreezes + earned;
 
-  const { current, atRisk, freezesUsed } = computeStreak(byDay, today, freezes);
-  const longest = longestStreak(byDay);
+  // streak walks only the days with real work on them — kata-only days don't count
+  const workDays = new Set();
+  for (const [day, rec] of byDay) {
+    if (rec.tasks + rec.steps > 0) {
+      workDays.add(day);
+    }
+  }
+  const { current, atRisk, freezesUsed } = computeStreak(workDays, today, freezes);
+  const longest = longestStreak(workDays);
 
-  // recent heatmap, oldest → newest, always exactly heatDays long
+  // the last 7 days of kata practice, oldest → newest, ending today
+  const week = [];
+  {
+    let cursor = today;
+    for (let i = 0; i < 7; i++) {
+      const row = rowsByDay.get(cursor);
+      let state_;
+      if (isClean(row)) {
+        state_ = "clean";
+      } else if (cursor === today) {
+        state_ = "pending"; // today isn't over — not dirty, just not done
+      } else if (row && (row.honoredIds || []).length > 0) {
+        state_ = "partial";
+      } else {
+        state_ = "none";
+      }
+      week.unshift({ day: cursor, state: state_ });
+      cursor = prevDay(cursor);
+    }
+  }
+
+  // recent heatmap, oldest → newest, always exactly heatDays long — kata count
+  // here (the heatmap celebrates showing up), unlike the goal/streak above
   const heat = [];
   let cursor = today;
   for (let i = 0; i < heatDays; i++) {
-    heat.unshift({ date: cursor, count: countOn(cursor) });
+    heat.unshift({ date: cursor, count: heatOn(cursor) });
     cursor = prevDay(cursor);
   }
 
@@ -434,6 +582,12 @@ export function momentum(state, { today = dayKey(), heatDays = 120 } = {}) {
     daysActive: byDay.size,
     totalDone,
     xp,
+    discipline: {
+      cleanDays: cleanSet.size,
+      cleanStreak: computeCleanStreak(cleanSet, today),
+      grade: grade(cleanSet.size),
+      week,
+    },
     milestones: streakMilestones(longest),
     roadmaps: roadmapProgress(state),
     projects: {

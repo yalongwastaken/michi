@@ -275,34 +275,34 @@ test("export → import round-trip retains completions", () => {
 test("activity summary: cached counts follow the toggle path exactly", () => {
   db.resetAll();
   db.addTask({ id: "act", title: "cache me" });
-  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0 }); // built lazily, empty
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0, kata: 0 }); // built lazily, empty
 
   db.setDone("task", "act", true, "2026-06-22T12:00:00Z");
   let a = db.getActivitySummary();
-  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0 });
-  assert.deepEqual(a.totals, { tasks: 1, steps: 0 });
+  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0, kata: 0 });
+  assert.deepEqual(a.totals, { tasks: 1, steps: 0, kata: 0 });
 
   // a same-day re-complete is a log no-op (UNIQUE) — the cache must not double-count
   db.setDone("task", "act", true, "2026-06-22T13:00:00Z");
-  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0, kata: 0 });
 
   // the same item completed on another day is a second row of real history
   db.setDone("task", "act", true, "2026-06-23T09:00:00Z");
   a = db.getActivitySummary();
   assert.equal(a.byDay.size, 2);
-  assert.deepEqual(a.totals, { tasks: 2, steps: 0 });
+  assert.deepEqual(a.totals, { tasks: 2, steps: 0, kata: 0 });
 
   // toggle off retracts only that day's credit — and the emptied day stops
   // counting as "active" (daysActive reads byDay.size)
   db.setDone("task", "act", false, "2026-06-23T10:00:00Z");
   a = db.getActivitySummary();
   assert.equal(a.byDay.has("2026-06-23"), false);
-  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0 });
-  assert.deepEqual(a.totals, { tasks: 1, steps: 0 });
+  assert.deepEqual(a.byDay.get("2026-06-22"), { tasks: 1, steps: 0, kata: 0 });
+  assert.deepEqual(a.totals, { tasks: 1, steps: 0, kata: 0 });
 
   // a second undo has nothing left to retract — no drift below zero
   db.setDone("task", "act", false, "2026-06-23T11:00:00Z");
-  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0, kata: 0 });
 });
 
 test("momentum reads the cached summary — the raw log needn't ride along", () => {
@@ -693,6 +693,275 @@ test("purgeTrash / purgeAllTrash / reset all empty the trash for good", () => {
   assert.deepEqual(db.listTrash(), []);
 });
 
+// ── kata: daily forms + the honor ledger ────────────────────────────────────────
+
+const KATA = [
+  { id: "kata-a", title: "greyscale phone", builtinId: "greyscale-phone", position: 0 },
+  { id: "kata-b", title: "shutdown ritual", builtinId: "shutdown", position: 1 },
+  { id: "kata-c", title: "my own form", note: "custom, no builtin", active: false, position: 2 },
+];
+
+test("kata round-trip the full-state PUT (camelCase, active as a real bool)", () => {
+  db.resetAll();
+  const s = db.putState({ kata: KATA });
+  assert.equal(s.kata.length, 3);
+  assert.deepEqual(
+    s.kata.map((k) => k.id),
+    ["kata-a", "kata-b", "kata-c"],
+  );
+  assert.equal(s.kata[0].builtinId, "greyscale-phone");
+  assert.equal(s.kata[0].active, true); // absent → the schema default
+  assert.equal(s.kata[2].active, false);
+  assert.equal(s.kata[2].note, "custom, no builtin");
+  assert.ok(s.kata[0].createdAt);
+  assert.ok(!("kataDays" in s)); // history stays off the everyday paths, like completions
+});
+
+test("validateState: at most 5 ACTIVE kata — inactive ones don't count", () => {
+  const kata = (n, active = true) =>
+    Array.from({ length: n }, (_, i) => ({ id: `k${i}${active}`, title: `k ${i}`, active }));
+  assert.match(db.validateState({ kata: kata(6) }), /at most 5 kata can be active/);
+  assert.equal(db.validateState({ kata: kata(5) }), null);
+  assert.equal(db.validateState({ kata: [...kata(5), ...kata(4, false)] }), null);
+  // absent `active` counts as active (the schema default)
+  assert.ok(
+    db.validateState({ kata: Array.from({ length: 6 }, (_, i) => ({ id: `x${i}`, title: "t" })) }),
+  );
+});
+
+test("validateState: kata shape and duplicate ids are named", () => {
+  assert.match(db.validateState({ kata: [{ title: "no id" }] }), /kata needs an id/);
+  assert.match(db.validateState({ kata: [{ id: "k", title: "  " }] }), /kata needs a title/);
+  assert.match(db.validateState({ kata: [{ id: "k", title: "t", active: "no" }] }), /kata.active/);
+  assert.match(
+    db.validateState({
+      kata: [
+        { id: "dup", title: "a" },
+        { id: "dup", title: "b" },
+      ],
+    }),
+    /duplicate kata id "dup"/,
+  );
+  assert.equal(db.validateState({ kata: [{ id: "k", title: "t", active: 1 }] }), null);
+});
+
+test("validateState: kataDays rows need a valid day and id arrays", () => {
+  assert.match(db.validateState({ kataDays: "nope" }), /kataDays must be an array/);
+  assert.match(
+    db.validateState({ kataDays: [{ day: "2026-02-30", activeIds: [], honoredIds: [] }] }),
+    /valid day/,
+  );
+  assert.match(
+    db.validateState({ kataDays: [{ day: "2026-06-23", activeIds: "x", honoredIds: [] }] }),
+    /arrays/,
+  );
+  assert.equal(
+    db.validateState({ kataDays: [{ day: "2026-06-23", activeIds: ["a"], honoredIds: ["a"] }] }),
+    null,
+  );
+});
+
+test("honor toggle: completions row + day snapshot, undo retracts both", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  const before = db.getState().rev;
+
+  let s = db.setKataHonored("kata-a", true, "2026-06-23T08:00:00Z");
+  assert.equal(s.rev, before + 1);
+  assert.ok(!("completions" in s)); // the honor response stays slim
+  let full = db.getFullState();
+  assert.deepEqual(
+    full.completions.map((c) => [c.kind, c.refId, c.day]),
+    [["kata", "kata-a", "2026-06-23"]],
+  );
+  // first honor of the day snapshotted the ACTIVE set (kata-c is retired)
+  assert.deepEqual(full.kataDays, [
+    { day: "2026-06-23", activeIds: ["kata-a", "kata-b"], honoredIds: ["kata-a"] },
+  ]);
+
+  // re-honoring the same day is a no-op for the log (UNIQUE) and the cache
+  db.setKataHonored("kata-a", true, "2026-06-23T09:00:00Z");
+  assert.equal(db.getFullState().completions.length, 1);
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0, kata: 1 });
+
+  const today = db.getKataToday("2026-06-23");
+  assert.deepEqual(
+    today.items.map((i) => [i.id, i.honoredToday]),
+    [
+      ["kata-a", true],
+      ["kata-b", false],
+    ],
+  );
+  assert.deepEqual(today.today, { honored: 1, total: 2, clean: false });
+
+  // honoring the rest makes the day clean
+  db.setKataHonored("kata-b", true, "2026-06-23T21:00:00Z");
+  assert.deepEqual(db.getKataToday("2026-06-23").today, { honored: 2, total: 2, clean: true });
+
+  // undo removes only that day's credit — and the snapshot survives
+  s = db.setKataHonored("kata-b", false, "2026-06-23T22:00:00Z");
+  full = db.getFullState();
+  assert.equal(full.completions.length, 1);
+  assert.deepEqual(full.kataDays[0].honoredIds, ["kata-a"]);
+  assert.deepEqual(full.kataDays[0].activeIds, ["kata-a", "kata-b"]); // snapshot intact
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0, kata: 1 });
+});
+
+test("honor toggle: the day's snapshot wins when the active set changes mid-day", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  db.setKataHonored("kata-a", true, "2026-06-23T08:00:00Z");
+  db.setKataHonored("kata-b", true, "2026-06-23T09:00:00Z");
+  // clean by the morning snapshot…
+  assert.deepEqual(db.getKataToday("2026-06-23").today, { honored: 2, total: 2, clean: true });
+  // …then a third form activates at 11 pm — the snapshot doesn't move
+  db.putState({ kata: KATA.map((k) => ({ ...k, active: true })) });
+  const t = db.getKataToday("2026-06-23");
+  assert.deepEqual(t.today, { honored: 2, total: 3, clean: true }); // snapshot wins
+  assert.equal(t.items.length, 3);
+});
+
+test("a PUT that retires a kata mid-day intersects TODAY's snapshot; history stays", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  // yesterday's ledger row — history must keep the yardstick it was measured against
+  db.setKataHonored("kata-a", true, "2026-06-22T08:00:00Z");
+  db.setKataHonored("kata-b", true, "2026-06-22T09:00:00Z");
+  // today (the real local day — reconcile only ever touches today's row):
+  // honor one of two, then retire the OTHER mid-day
+  db.setKataHonored("kata-a", true);
+  db.putState({ kata: KATA.map((k) => (k.id === "kata-b" ? { ...k, active: false } : k)) });
+  const today = new Date().toISOString().slice(0, 10); // TZ pinned to UTC above
+  const rows = db.getFullState().kataDays;
+  assert.deepEqual(
+    rows.find((r) => r.day === today),
+    { day: today, activeIds: ["kata-a"], honoredIds: ["kata-a"] },
+  );
+  // the retire can no longer make clean unreachable — kata-a alone holds the day,
+  // and the banner's "{honored} of {total}" matches what's achievable
+  assert.deepEqual(db.getKataToday(today).today, { honored: 1, total: 1, clean: true });
+  // …while yesterday's row didn't move
+  assert.deepEqual(rows.find((r) => r.day === "2026-06-22").activeIds, ["kata-a", "kata-b"]);
+
+  // a delete-by-absence reconciles the same way, and an emptied snapshot drops
+  // the row so a later honor re-snapshots fresh instead of judging against []
+  db.putState({ kata: KATA.filter((k) => k.id === "kata-c").map((k) => ({ ...k, active: true })) });
+  assert.equal(
+    db.getFullState().kataDays.find((r) => r.day === today),
+    undefined,
+  );
+  db.setKataHonored("kata-c", true);
+  assert.deepEqual(
+    db.getFullState().kataDays.find((r) => r.day === today),
+    { day: today, activeIds: ["kata-c"], honoredIds: ["kata-c"] },
+  );
+});
+
+test("un-honoring the day's last kata drops the ledger row — the next honor re-snapshots", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  db.setKataHonored("kata-a", true, "2026-06-23T08:00:00Z");
+  assert.equal(db.getFullState().kataDays.length, 1);
+  db.setKataHonored("kata-a", false, "2026-06-23T09:00:00Z");
+  assert.deepEqual(db.getFullState().kataDays, []); // row gone, not honoredIds: []
+  // the active set changes while nothing is honored…
+  db.putState({ kata: KATA.map((k) => ({ ...k, active: true })) });
+  // …and the day's next FIRST honor snapshots the fresh set, not the stale one
+  db.setKataHonored("kata-c", true, "2026-06-23T10:00:00Z");
+  assert.deepEqual(db.getFullState().kataDays, [
+    { day: "2026-06-23", activeIds: ["kata-a", "kata-b", "kata-c"], honoredIds: ["kata-c"] },
+  ]);
+});
+
+test("honoring a retired or unknown kata throws (nothing written)", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  const before = db.getFullState();
+  assert.throws(() => db.setKataHonored("kata-c", true), /not active/);
+  assert.throws(() => db.setKataHonored("ghost", true), /not found/);
+  assert.deepEqual(db.getFullState(), before);
+});
+
+test("export → import round-trips kata AND the honor ledger", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  db.setKataHonored("kata-a", true, "2026-06-22T08:00:00Z");
+  db.setKataHonored("kata-b", true, "2026-06-22T09:00:00Z");
+  db.setKataHonored("kata-a", true, "2026-06-23T08:00:00Z");
+  const exported = db.getFullState();
+  assert.equal(exported.kataDays.length, 2);
+  db.resetAll();
+  assert.deepEqual(db.getFullState().kataDays, []);
+  const restored = db.importAll(exported);
+  assert.deepEqual(restored.kataDays, exported.kataDays);
+  assert.deepEqual(restored.kata, exported.kata);
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0, kata: 3 });
+});
+
+test("everyday PUT never touches the honor ledger (even an explicit kataDays key)", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  db.setKataHonored("kata-a", true, "2026-06-23T08:00:00Z");
+  const before = db.getFullState().kataDays;
+  const s = db.putState({ kata: KATA, kataDays: [] });
+  assert.ok(!("kataDays" in s));
+  assert.deepEqual(db.getFullState().kataDays, before);
+});
+
+test("a kata vanishing from a PUT is trashed; restore brings it back intact", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  const s = db.putState({ kata: KATA.slice(0, 2) });
+  assert.deepEqual(
+    s.trashed.map((r) => [r.kind, r.title]),
+    [["kata", "my own form"]],
+  );
+  const [row] = db.listTrash();
+  assert.equal(row.kind, "kata");
+  assert.equal(row.counts, null); // nothing to count on a lone kata
+  const { state, restored } = db.restoreTrash(row.id);
+  assert.deepEqual(restored, { id: row.id, kind: "kata", title: "my own form", remapped: false });
+  const back = state.kata.find((k) => k.id === "kata-c");
+  assert.equal(back.note, "custom, no builtin");
+  assert.equal(back.active, false);
+});
+
+test("restoring a kata into a full dōjō brings it back retired, not invalid", () => {
+  db.resetAll();
+  const five = Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, title: `form ${i}` }));
+  // "gone" is active alongside four others…
+  db.putState({ kata: [{ id: "gone", title: "the sixth", active: true }, ...five.slice(0, 4)] });
+  // …then it vanishes and the dōjō refills to 5 active before the undo
+  db.putState({ kata: five });
+  const row = db.listTrash().find((r) => r.title === "the sixth");
+  const { state } = db.restoreTrash(row.id);
+  const back = state.kata.find((k) => k.title === "the sixth");
+  assert.equal(back.active, false); // 5 already active — it returns retired
+  assert.equal(db.validateState(state), null); // the next PUT can't get stranded
+});
+
+test("restoreTrash: a recreated kata id forces a remap", () => {
+  db.resetAll();
+  db.putState({ kata: KATA });
+  db.putState({ kata: KATA.slice(1) }); // kata-a vanishes
+  db.putState({ kata: [{ id: "kata-a", title: "rebuilt" }, ...KATA.slice(1)] });
+  const row = db.listTrash().find((r) => r.kind === "kata");
+  const { state, restored } = db.restoreTrash(row.id);
+  assert.equal(restored.remapped, true);
+  const back = state.kata.find((k) => k.title === "greyscale phone");
+  assert.notEqual(back.id, "kata-a");
+  assert.match(back.id, /^kata_/);
+});
+
+test("resetAll clears kata and the honor ledger too", () => {
+  db.putState({ kata: KATA.slice(0, 1) });
+  db.setKataHonored("kata-a", true);
+  const s = db.resetAll();
+  assert.deepEqual(s.kata, []);
+  assert.deepEqual(db.getFullState().kataDays, []);
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 0, steps: 0, kata: 0 });
+});
+
 test("activity summary: import / restore / reset invalidate the cache wholesale", () => {
   db.getActivitySummary(); // make sure it's built, so any staleness would show
   db.importAll({
@@ -702,13 +971,13 @@ test("activity summary: import / restore / reset invalidate the cache wholesale"
       { day: "2026-06-21", kind: "step", refId: "ghost" },
     ],
   });
-  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 1 });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 1, kata: 0 });
 
   db.replaceCompletions([{ day: "2026-06-19", kind: "task", refId: "imp" }]);
-  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0 });
+  assert.deepEqual(db.getActivitySummary().totals, { tasks: 1, steps: 0, kata: 0 });
 
   db.resetAll();
   const a = db.getActivitySummary();
   assert.equal(a.byDay.size, 0);
-  assert.deepEqual(a.totals, { tasks: 0, steps: 0 });
+  assert.deepEqual(a.totals, { tasks: 0, steps: 0, kata: 0 });
 });

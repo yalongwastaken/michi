@@ -71,10 +71,22 @@ const SEED = {
       notes: "left off at §3\nre-read the timing diagram",
     },
   ],
+  kata: [
+    {
+      id: "ka1",
+      title: "greyscale phone",
+      builtinId: "greyscale-phone",
+      active: true,
+      position: 0,
+      note: "turn it off before bed",
+    },
+    { id: "ka2", title: "my custom form", active: false, position: 1 },
+  ],
   completions: [
     { day: "2026-07-01", kind: "step", refId: "st1" },
     { day: "2026-07-02", kind: "task", refId: "t1" },
   ],
+  kataDays: [{ day: "2026-07-02", activeIds: ["ka1"], honoredIds: ["ka1"] }],
 };
 
 test("export renders anchors, attribute tokens, and the prompt header", () => {
@@ -106,6 +118,12 @@ test("export renders anchors, attribute tokens, and the prompt header", () => {
   // archived roadmap: marker present, its tree omitted
   assert.match(out, /## Roadmap: Old Track \{#rm2\}\narchived/);
   assert.doesNotMatch(out, /Secret step/);
+  // kata: checkbox = ACTIVE (not honoring), form token + note ride along
+  assert.match(out, /`## Kata` are daily forms/); // documented in the prompt header
+  assert.match(
+    out,
+    /## Kata\n- \[x\] greyscale phone \{#ka1\} form:greyscale-phone\n {2}> turn it off before bed\n- \[ \] my custom form \{#ka2\}/,
+  );
 });
 
 test("parse round-trips an export: no creates, no updates, no warnings", () => {
@@ -301,6 +319,7 @@ test("applySync merges creates + updates atomically and preserves completions", 
     steps: 0,
     projects: 0,
     tasks: 1,
+    kata: 0,
   });
   assert.equal(result.applied.updatedCounts.tasks, 1);
   const t1 = result.state.tasks.find((t) => t.id === "t1");
@@ -475,6 +494,7 @@ test("re-applying the same reply is idempotent — zero creates, zero updates", 
     steps: 2,
     projects: 0,
     tasks: 2,
+    kata: 0,
   });
   assert.equal(result.applied.updatedCounts.tasks, 1);
   // careless re-paste of the SAME reply: everything resolves by title, nothing changes
@@ -687,6 +707,102 @@ test("project roadmap link: parses, diffs, and resolves same-doc anchors", () =>
     state,
   );
   assert.equal(plan.creates.projects[0].roadmapId, plan.creates.roadmaps[0].id);
+});
+
+// ── kata sync ───────────────────────────────────────────────────────────────────
+
+test("kata sync: create + retire via the checkbox; absent fields stay untouched", () => {
+  db.importAll(SEED);
+  const before = db.getFullState();
+  const doc = [
+    "## Kata",
+    "- [ ] greyscale phone {#ka1}", // retire it (checkbox = active flag)
+    "- [x] water before coffee form:water-first", // a new active form, with a note
+    "> hydrate first",
+  ].join("\n");
+  const result = md.applySync(md.parseSync(doc));
+  assert.equal(result.applied.updatedCounts.kata, 1);
+  assert.equal(result.applied.createdCounts.kata, 1);
+  const ka1 = result.state.kata.find((k) => k.id === "ka1");
+  assert.equal(ka1.active, false);
+  assert.equal(ka1.note, "turn it off before bed"); // no blockquote on the line → kept
+  assert.equal(ka1.builtinId, "greyscale-phone"); // no form: token on the line → kept
+  const fresh = result.state.kata.find((k) => k.title === "water before coffee");
+  assert.match(fresh.id, /^kata_/);
+  assert.equal(fresh.active, true);
+  assert.equal(fresh.builtinId, "water-first");
+  assert.equal(fresh.note, "hydrate first");
+  // sync never writes honor history — the ledger and the log are untouched
+  assert.deepEqual(result.state.kataDays, before.kataDays);
+  assert.deepEqual(result.state.completions, before.completions);
+  // a careless re-paste of the same reply changes nothing (title match, no dupes)
+  const again = md.planSync(md.parseSync(doc), result.state);
+  assert.deepEqual(again.updates, []);
+  assert.deepEqual(again.creates.kata, []);
+  assert.ok(again.warnings.some((w) => /kata without an anchor matched/.test(w)));
+});
+
+test("kata: an unknown anchor demotes to a create; anchor-less titles match", () => {
+  db.importAll(SEED);
+  const plan = md.planSync(
+    md.parseSync("## Kata\n- [x] Ghost form {#nope}\n- [ ] my custom form\n"),
+    db.getFullState(),
+  );
+  assert.equal(plan.creates.kata.length, 1);
+  assert.notEqual(plan.creates.kata[0].id, "nope"); // never adopt an invented id
+  assert.ok(plan.warnings.some((w) => /unknown id "nope"/.test(w)));
+  assert.deepEqual(plan.updates, []); // ka2 matched by title and already retired
+});
+
+test("sync cannot activate a sixth kata — apply fails atomically", () => {
+  db.importAll({
+    kata: Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, title: `form ${i}` })),
+  });
+  const before = db.getFullState();
+  assert.throws(
+    () => md.applySync(md.parseSync("## Kata\n- [x] a sixth form\n")),
+    /at most 5 kata/,
+  );
+  assert.deepEqual(db.getFullState(), before); // nothing was written
+  // a RETIRED sixth form is welcome — the cap is on active practice, not ideas
+  const ok = md.applySync(md.parseSync("## Kata\n- [ ] a sixth form\n"));
+  assert.equal(ok.state.kata.length, 6);
+  assert.equal(ok.state.kata.find((k) => k.title === "a sixth form").active, false);
+});
+
+test("preview warns where apply will reject: a plan past the 5-active kata cap", () => {
+  db.importAll({
+    kata: Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, title: `form ${i}` })),
+  });
+  const plan = md.planSync(md.parseSync("## Kata\n- [x] a sixth form\n"), db.getFullState());
+  assert.ok(
+    plan.warnings.some((w) => /would activate 6 kata — apply will be rejected/.test(w)),
+    plan.warnings.join("; "),
+  );
+  // retiring one in the same doc keeps the plan inside the cap — no warning
+  const ok = md.planSync(
+    md.parseSync("## Kata\n- [ ] form 0 {#f0}\n- [x] a sixth form\n"),
+    db.getFullState(),
+  );
+  assert.ok(!ok.warnings.some((w) => /would activate/.test(w)));
+});
+
+test("kata checkbox: `[~]` counts as ACTIVE — doing is practicing, not retiring", () => {
+  db.importAll(SEED); // ka1 is active
+  const parsed = md.parseSync("## Kata\n- [~] greyscale phone {#ka1}\n");
+  assert.deepEqual(parsed.warnings, []); // active-in-spirit, not worth a warning
+  assert.equal(parsed.kata[0].active, true);
+  // …so the line is a no-op against an already-active form, not a silent retire
+  const plan = md.planSync(parsed, db.getFullState());
+  assert.deepEqual(plan.updates, []);
+});
+
+test("an unknown form: id is kept verbatim — with a warning", () => {
+  const parsed = md.parseSync("## Kata\n- [x] mystery form form:not-a-real-form\n");
+  assert.equal(parsed.kata[0].builtinId, "not-a-real-form"); // never rewritten
+  assert.ok(parsed.warnings.some((w) => /unknown form id "not-a-real-form"/.test(w)));
+  // a library id passes quietly
+  assert.deepEqual(md.parseSync("## Kata\n- [x] shutdown ritual form:shutdown\n").warnings, []);
 });
 
 test("project roadmap link applies end-to-end and stays idempotent", () => {
