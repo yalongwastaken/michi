@@ -91,6 +91,10 @@ export const api = {
   trashRestore: (id) => req("/api/trash/restore", { method: "POST", body: JSON.stringify({ id }) }),
   trashDelete: (id) => req(`/api/trash/${encodeURIComponent(id)}`, { method: "DELETE" }),
   trashEmpty: () => req("/api/trash", { method: "DELETE" }),
+  // backups: the nightly snapshot folder — list it, or take a snapshot right now.
+  // backupNow resolves to the new file's entry: { file, sizeBytes, mtime }.
+  backups: () => req("/api/backups"),
+  backupNow: () => req("/api/backup", { method: "POST" }),
   reset: () => req("/api/reset", { method: "POST" }),
   importState: (state) => req("/api/import", { method: "POST", body: JSON.stringify(state) }),
   // the Claude round-trip: export markdown, preview a pasted reply, apply it

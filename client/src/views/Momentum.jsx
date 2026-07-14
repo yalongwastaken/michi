@@ -323,11 +323,16 @@ export default function Momentum({ ctx }) {
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : review.reflection ? null : ( // the reflection below carries the quiet week
             <p className="text-sm text-slate-500">
               A quiet week on the path so far — one step gets it moving.
             </p>
           )}
+          {review.reflection ? (
+            <p className="mt-2 text-xs italic text-slate-500 dark:text-slate-400">
+              {review.reflection}
+            </p>
+          ) : null}
           {review.advanced.length ? (
             <p className="mt-2 text-xs text-slate-500">Moved: {review.advanced.join(", ")}</p>
           ) : null}

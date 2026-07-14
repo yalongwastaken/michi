@@ -324,12 +324,10 @@ function RoadmapCard({ rm, ctx, onEdit }) {
 
   const remove = async () => {
     // deleteRoadmap takes milestones + steps along and unlinks projects/tasks
-    // that pointed here (the server rejects dangling refs)
-    const ok = await save((s) => deleteRoadmap(s, rm.id));
+    // that pointed here (the server rejects dangling refs). save() itself
+    // offers the undo toast from the PUT's trash receipt.
+    await save((s) => deleteRoadmap(s, rm.id));
     focusMainHeading(); // the card just vanished — don't drop focus to <body>
-    if (ok !== false) {
-      ctx.notifyDeleted?.("roadmap", rm.title); // the undo toast's cue
-    }
   };
 
   return (

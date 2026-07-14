@@ -65,10 +65,10 @@ export default function TaskModal({ ctx, task = null, onClose }) {
   };
 
   const remove = async () => {
+    // save() itself offers the undo toast from the PUT's trash receipt
     const ok = await save((s) => deleteTask(s, task.id));
     if (ok !== false) {
       onClose();
-      ctx.notifyDeleted?.("task", task.title); // the undo toast's cue
     }
   };
 

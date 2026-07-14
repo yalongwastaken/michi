@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dueLabel, minutes, shortDate, addDays, timeAgo } from "../src/lib/format.js";
+import { dueLabel, minutes, shortDate, addDays, timeAgo, formatBytes } from "../src/lib/format.js";
 
 test("dueLabel: relative wording", () => {
   assert.equal(dueLabel("2026-06-23", "2026-06-23"), "today");
@@ -34,6 +34,15 @@ test("timeAgo: compact relative labels", () => {
   assert.equal(timeAgo("2026-07-13T07:00:00Z", now), "5h ago");
   assert.equal(timeAgo("2026-07-10T12:00:00Z", now), "3d ago");
   assert.equal(timeAgo("not a date", now), "");
+});
+
+test("formatBytes: compact sizes for the backups card", () => {
+  assert.equal(formatBytes(812), "812 B");
+  assert.equal(formatBytes(45056), "44 KB");
+  assert.equal(formatBytes(1258291), "1.2 MB");
+  assert.equal(formatBytes(12 * 1024 * 1024), "12 MB");
+  assert.equal(formatBytes(-1), "");
+  assert.equal(formatBytes("nope"), "");
 });
 
 test("shortDate: includes day + month (order is locale-dependent)", () => {

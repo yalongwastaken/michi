@@ -13,13 +13,16 @@ import {
   Hammer,
   CheckCircle2,
   Undo2,
+  Archive,
+  Footprints,
 } from "lucide-react";
 import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
 import { api } from "../lib/api.js";
-import { timeAgo } from "../lib/format.js";
+import { timeAgo, formatBytes } from "../lib/format.js";
 
-// glyphs for what kind of thing is resting in the trash
-const TRASH_ICON = { roadmap: Map, project: Hammer, task: CheckCircle2 };
+// glyphs for what kind of thing is resting in the trash (Footprints matches the
+// step glyph on Today's plan rows)
+const TRASH_ICON = { roadmap: Map, step: Footprints, project: Hammer, task: CheckCircle2 };
 
 const THEMES = [
   { id: "system", label: "System", icon: Monitor },
@@ -56,7 +59,7 @@ async function copyText(text) {
 }
 
 export default function Settings({ ctx, onClose }) {
-  const { state, save, refresh, busy } = ctx;
+  const { state, save, refresh, busy, trashRestore, trashPurge, trashEmpty } = ctx;
   const fileRef = useRef(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [name, setName] = useState(state.profile?.name || "");
@@ -78,21 +81,57 @@ export default function Settings({ ctx, onClose }) {
   // mounts on open, so the effect *is* the lazy load). null = still loading.
   const [trash, setTrash] = useState(null);
   const trashBusy = useRef(false); // one restore/purge at a time
+  // the backups list rides the same lazy load. null = still loading.
+  const [backups, setBackups] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backedUp, setBackedUp] = useState(false); // brief "Backed up ✓" flash
+  const backupFlash = useRef(null);
+  // a ref, not just state: two taps in the same render both read backupBusy as
+  // false before React flushes — same double-tap pattern as `syncing` above
+  const backingUp = useRef(false);
   useEffect(() => {
     api
       .trash()
       .then((r) => setTrash(r.items || []))
       .catch(() => setTrash([])); // unreachable → show the calm empty state
+    api
+      .backups()
+      .then((r) => setBackups(r.items || []))
+      .catch(() => setBackups([]));
+    return () => clearTimeout(backupFlash.current);
   }, []);
 
+  const backupNow = async () => {
+    if (backingUp.current) {
+      return;
+    }
+    backingUp.current = true;
+    setBackupBusy(true); // state still drives the disabled/label UI
+    try {
+      await api.backupNow();
+      // refetch rather than splice — rotation may also have dropped the oldest
+      setBackups((await api.backups()).items || []);
+      setBackedUp(true);
+      clearTimeout(backupFlash.current);
+      backupFlash.current = setTimeout(() => setBackedUp(false), 2000);
+      setError(null);
+    } catch (err) {
+      setError(err.message || "backup failed");
+    }
+    backingUp.current = false;
+    setBackupBusy(false);
+  };
+
+  // restore/purge/empty go through the ctx helpers, which ride App's write
+  // queue — a restore adopting state outside the queue could transiently
+  // regress it while a save was still in flight
   const restoreItem = async (row) => {
     if (trashBusy.current) {
       return;
     }
     trashBusy.current = true;
     try {
-      await api.trashRestore(row.id);
-      await refresh(); // adopt the restored state + rebuild the plan
+      await trashRestore(row.id); // adopts the restored state + rebuilds the plan
       setTrash((t) => (t || []).filter((x) => x.id !== row.id));
       setError(null);
     } catch (err) {
@@ -107,7 +146,7 @@ export default function Settings({ ctx, onClose }) {
     }
     trashBusy.current = true;
     try {
-      await api.trashDelete(row.id);
+      await trashPurge(row.id);
       setTrash((t) => (t || []).filter((x) => x.id !== row.id));
       setError(null);
     } catch (err) {
@@ -122,7 +161,7 @@ export default function Settings({ ctx, onClose }) {
     }
     trashBusy.current = true;
     try {
-      await api.trashEmpty();
+      await trashEmpty();
       setTrash([]);
       setError(null);
     } catch (err) {
@@ -500,6 +539,30 @@ export default function Settings({ ctx, onClose }) {
         <p className="mt-2 text-xs text-slate-400">
           Everything lives in one SQLite file on your mini PC — an export is a full backup.
         </p>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+              <Archive size={14} className="shrink-0 text-slate-400" /> Backups
+            </p>
+            <p className="mt-0.5 text-xs text-slate-400">
+              {backups == null
+                ? "Checking backups…"
+                : backups.length === 0
+                  ? "No backups yet — nightly timer not set up? See the README."
+                  : `Last backup: ${timeAgo(backups[0].mtime)} · ${formatBytes(backups[0].sizeBytes)} · ${backups.length} kept`}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            onClick={backupNow}
+            disabled={backupBusy}
+            className="shrink-0"
+            aria-label="Back up now"
+          >
+            {backedUp ? <Check size={15} className="text-trail-600" /> : <Archive size={15} />}
+            {backedUp ? "Backed up ✓" : backupBusy ? "Backing up…" : "Back up now"}
+          </Button>
+        </div>
       </div>
 
       {error ? (

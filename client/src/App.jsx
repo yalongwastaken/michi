@@ -78,7 +78,7 @@ export default function App({ onTheme }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [celebration, setCelebration] = useState(null);
-  const [undo, setUndo] = useState(null); // { trashId, title } — one toast at a time
+  const [undo, setUndo] = useState(null); // { ids, title, count } — one toast at a time
 
   // today's key is state (not a per-render constant) so an installed PWA that sits
   // open overnight rolls over to the new day when it refetches
@@ -272,10 +272,23 @@ export default function App({ onTheme }) {
             return false;
           }
         }
-        applyState(saved);
-        onTheme?.(saved.settings?.theme || "system");
-        if (saved.settings?.dailyMinutes !== budgetBefore) {
+        // the PUT's response carries a `trashed` receipt naming exactly what this
+        // write snapshotted into trash — the undo toast binds to those rows by id
+        // instead of guessing at the newest trash entry. Peeled off before the
+        // state is adopted (it's a write receipt, not model state); import/sync
+        // responses never carry it, so `[]` is the quiet default.
+        const { trashed = [], ...fresh } = saved;
+        applyState(fresh);
+        onTheme?.(fresh.settings?.theme || "system");
+        if (fresh.settings?.dailyMinutes !== budgetBefore) {
           budgetBoostRef.current = null; // a chosen budget beats a stale "one more"
+        }
+        if (Array.isArray(trashed) && trashed.length > 0) {
+          setUndo({
+            ids: trashed.map((r) => r.id),
+            title: trashed[0].title,
+            count: trashed.length,
+          });
         }
         setError(null);
         // the PUT succeeded — a failed follow-up refresh must not report failure
@@ -325,26 +338,9 @@ export default function App({ onTheme }) {
     [enqueue, applyState, refreshDerived],
   );
 
-  // after a delete-save resolves, peek at the trash: the server just snapshotted
-  // whatever disappeared from the PUT, so the newest row should be the thing the
-  // user deleted. Verify kind + title before offering undo — the toast's restore
-  // must never resurrect something else. Fail-soft: no toast, but the Settings
-  // trash list still has the row.
-  const notifyDeleted = useCallback(async (kind, title) => {
-    try {
-      const { items } = await api.trash();
-      const row = items?.[0];
-      if (!row || row.kind !== kind || row.title !== title) {
-        return;
-      }
-      setUndo({ trashId: row.id, title: row.title });
-    } catch {
-      /* offline or trash unavailable — deletion already succeeded, stay quiet */
-    }
-  }, []);
-
-  // the toast's Undo: restore the trash row, adopt the returned truth, refresh.
-  // Enqueued so it can't interleave with a save already in flight.
+  // the toast's Undo: restore every row the PUT trashed (its receipt can name
+  // several — a roadmap plus the tasks that vanished with it), adopting the
+  // final state once. Enqueued so it can't interleave with a save in flight.
   const undoDelete = useCallback(() => {
     const u = undo;
     setUndo(null);
@@ -352,13 +348,19 @@ export default function App({ onTheme }) {
       return Promise.resolve(false);
     }
     return enqueue(async () => {
+      let state = null; // the last truth a restore handed back
       try {
-        const res = await api.trashRestore(u.trashId);
-        applyState(res.state);
+        for (const id of u.ids) {
+          state = (await api.trashRestore(id)).state;
+        }
       } catch (e) {
         setError(e.message || "could not restore");
+        if (state) {
+          applyState(state); // keep whatever DID come back before the failure
+        }
         return false;
       }
+      applyState(state);
       try {
         await refreshDerived();
       } catch {
@@ -367,6 +369,22 @@ export default function App({ onTheme }) {
       return true;
     });
   }, [undo, enqueue, applyState, refreshDerived]);
+
+  // Settings' trash actions ride the same write queue as saves — a restore that
+  // adopted state outside the queue could transiently regress stateRef while a
+  // save was in flight. Rejections propagate so Settings shows them in-modal.
+  const trashRestore = useCallback(
+    (id) =>
+      enqueue(async () => {
+        const res = await api.trashRestore(id);
+        applyState(res.state);
+        await refreshDerived().catch(() => {}); // best-effort; the restore landed
+        return res;
+      }),
+    [enqueue, applyState, refreshDerived],
+  );
+  const trashPurge = useCallback((id) => enqueue(() => api.trashDelete(id)), [enqueue]);
+  const trashEmpty = useCallback(() => enqueue(() => api.trashEmpty()), [enqueue]);
 
   const addTask = useCallback(
     (task) =>
@@ -434,7 +452,9 @@ export default function App({ onTheme }) {
     save,
     complete,
     addTask,
-    notifyDeleted,
+    trashRestore,
+    trashPurge,
+    trashEmpty,
     setTab,
     refresh: load,
     busy,
