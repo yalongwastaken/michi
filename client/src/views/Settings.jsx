@@ -7,7 +7,6 @@ import {
   Moon,
   Monitor,
   Sparkles,
-  Copy,
   Check,
   Map,
   Hammer,
@@ -16,12 +15,16 @@ import {
   Archive,
   Footprints,
   Shell,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-import { Modal, Button, ConfirmButton, Field, Input, Select } from "../ui.jsx";
+import { Modal, Button, ConfirmButton, Field, Input, Select, Badge } from "../ui.jsx";
 import { api } from "../lib/api.js";
 import { timeAgo, formatBytes } from "../lib/format.js";
+import { INTENSITY_LEVELS, intensityPatch, matchIntensity } from "../lib/intensity.js";
 import Mascot, { SPECIES_LIST } from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
+import PlanWithClaude from "./PlanWithClaude.jsx";
 
 // glyphs for what kind of thing is resting in the trash (Footprints matches the
 // step glyph on Today's plan rows; Shell — a quiet spiral — stands for a kata form)
@@ -39,54 +42,20 @@ const THEMES = [
   { id: "dark", label: "Dark", icon: Moon },
 ];
 
-// "1 roadmap · 12 steps · 5 tasks" from a {kind: n} (or {kind: {count}}) map.
-// "kata" is its own plural (mirror of server/markdown.js) — never "2 katas".
-function countsLabel(obj, pick = (v) => v) {
-  const parts = [];
-  for (const [kind, v] of Object.entries(obj || {})) {
-    const n = pick(v);
-    if (n > 0) {
-      const noun = kind.replace(/s$/, "");
-      parts.push(`${n} ${noun}${n > 1 && noun !== "kata" ? "s" : ""}`);
-    }
-  }
-  return parts.join(" · ");
-}
-
-// clipboard with a fallback for non-secure contexts (a mini PC on plain http)
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.cssText = "position:fixed;opacity:0";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  }
-}
-
 export default function Settings({ ctx, onClose }) {
   const { state, save, refresh, busy, trashRestore, trashPurge, trashEmpty } = ctx;
   const fileRef = useRef(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [name, setName] = useState(state.profile?.name || "");
-  const [error, setError] = useState(null); // import/reset/sync problems, shown in the modal
-
-  // the Claude round-trip: copy the export, paste the reply, preview, apply
-  const [md, setMd] = useState("");
-  const [preview, setPreview] = useState(null);
-  const [synced, setSynced] = useState(null);
-  const [copied, setCopied] = useState(false);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const syncing = useRef(false); // blocks a double tap from previewing/applying twice
+  const [error, setError] = useState(null); // import/reset problems, shown in the modal
 
   const settings = state.settings || {};
 
   const setSetting = (patch) => save((s) => Object.assign(s.settings, patch));
+  // editing a raw goal number breaks out of a preset — the picker shows "custom"
+  const setCustom = (patch) => setSetting({ ...patch, intensity: "custom" });
+  const intensity = matchIntensity(settings);
+  const [showAdvanced, setShowAdvanced] = useState(intensity === "custom");
 
   // the companion picker saves from behind this modal — App's banner is invisible
   // under the overlay, so a failed save has to surface in the in-modal one
@@ -225,66 +194,6 @@ export default function Settings({ ctx, onClose }) {
     }
   };
 
-  const copyExport = async () => {
-    if (syncing.current) {
-      return;
-    }
-    syncing.current = true;
-    try {
-      await copyText(await api.exportMd());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      setError(null);
-    } catch (err) {
-      setError(err.message || "export failed");
-    }
-    syncing.current = false;
-  };
-
-  const previewSync = async () => {
-    if (syncing.current || !md.trim()) {
-      return;
-    }
-    syncing.current = true;
-    setSyncBusy(true);
-    try {
-      setPreview(await api.syncPreview(md));
-      setSynced(null);
-      setError(null);
-    } catch (err) {
-      setPreview(null);
-      setError(err.message || "couldn't read that plan");
-    }
-    syncing.current = false;
-    setSyncBusy(false);
-  };
-
-  const applySyncNow = async () => {
-    if (syncing.current) {
-      return;
-    }
-    syncing.current = true;
-    setSyncBusy(true);
-    try {
-      const res = await api.syncApply(md);
-      await refresh(); // adopt the new state everywhere
-      const bits = [
-        countsLabel(res.applied?.createdCounts) &&
-          `created ${countsLabel(res.applied?.createdCounts)}`,
-        countsLabel(res.applied?.updatedCounts) &&
-          `updated ${countsLabel(res.applied?.updatedCounts)}`,
-      ].filter(Boolean);
-      setSynced(`Synced — ${bits.join(" · ") || "nothing to change"}.`);
-      setMd("");
-      setPreview(null);
-      setError(null);
-    } catch (err) {
-      setError(err.message || "sync failed");
-    }
-    syncing.current = false;
-    setSyncBusy(false);
-  };
-
   const doReset = async () => {
     try {
       await api.reset();
@@ -327,42 +236,117 @@ export default function Settings({ ctx, onClose }) {
         </div>
       </Field>
 
-      <Field label="Daily goal" hint="How many things you aim to finish each day.">
-        <Select
-          value={settings.dailyGoal ?? 3}
-          onChange={(e) => setSetting({ dailyGoal: Number(e.target.value) })}
-        >
-          {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
-            <option key={n} value={n}>
-              {n} per day
-            </option>
-          ))}
-        </Select>
+      <Field label="Intensity" hint="How hard you're pushing — sets your daily and weekly goals.">
+        <div className="grid grid-cols-2 gap-2">
+          {INTENSITY_LEVELS.map((lv) => {
+            const active = intensity === lv.id;
+            return (
+              <button
+                key={lv.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setSetting(intensityPatch(lv.id))}
+                className={`flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left transition ${
+                  active
+                    ? "bg-trail-50 ring-2 ring-trail-500 dark:bg-slate-800"
+                    : "ring-1 ring-slate-200 hover:ring-trail-300 dark:ring-slate-700"
+                }`}
+              >
+                <span className="flex items-center gap-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  {active ? (
+                    <Check size={13} className="text-trail-700 dark:text-trail-400" />
+                  ) : null}
+                  {lv.label}
+                </span>
+                <span className="text-[11px] text-slate-500">{lv.blurb}</span>
+                <span className="text-[11px] font-medium text-trail-700 dark:text-trail-400">
+                  ~{lv.dailyGoal}/day · {lv.weeklyGoal}/week
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </Field>
 
-      <Field
-        label="Daily time budget"
-        hint="How much time the planner fills when it builds your day."
-      >
-        <Select
-          value={settings.dailyMinutes ?? 60}
-          onChange={(e) => setSetting({ dailyMinutes: Number(e.target.value) })}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+          className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 transition hover:text-trail-700 dark:hover:text-trail-400"
         >
-          {[
-            [15, "15 min"],
-            [30, "30 min"],
-            [45, "45 min"],
-            [60, "1 hour"],
-            [90, "1.5 hours"],
-            [120, "2 hours"],
-            [180, "3 hours"],
-          ].map(([n, label]) => (
-            <option key={n} value={n}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+          {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Customize
+          {intensity === "custom" ? (
+            <Badge className="bg-iris-500/15 text-iris-600 dark:text-iris-300">custom</Badge>
+          ) : null}
+        </button>
+        {showAdvanced ? (
+          <div className="mt-3 space-y-4">
+            <Field label="Daily goal" hint="Completions that count as hitting your day.">
+              <Select
+                value={settings.dailyGoal ?? 3}
+                onChange={(e) => setCustom({ dailyGoal: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                  <option key={n} value={n}>
+                    {n} per day
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field
+              label="Daily time budget"
+              hint="How much time the planner fills when it builds your day."
+            >
+              <Select
+                value={settings.dailyMinutes ?? 60}
+                onChange={(e) => setCustom({ dailyMinutes: Number(e.target.value) })}
+              >
+                {[
+                  [15, "15 min"],
+                  [30, "30 min"],
+                  [45, "45 min"],
+                  [60, "1 hour"],
+                  [90, "1.5 hours"],
+                  [120, "2 hours"],
+                  [180, "3 hours"],
+                ].map(([n, label]) => (
+                  <option key={n} value={n}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Weekly goal" hint="Completions you aim for across the week.">
+              <Select
+                value={settings.weeklyGoal ?? 15}
+                onChange={(e) => setCustom({ weeklyGoal: Number(e.target.value) })}
+              >
+                {[3, 5, 10, 15, 20, 28, 40, 50].map((n) => (
+                  <option key={n} value={n}>
+                    {n} per week
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Active days per week" hint="Days you aim to show up.">
+              <Select
+                value={settings.weeklyActiveDays ?? 5}
+                onChange={(e) => setCustom({ weeklyActiveDays: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? "day" : "days"}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        ) : null}
+      </div>
 
       <Field label="Streak freezes" hint="Missed days the streak can bridge before it breaks.">
         <Select
@@ -410,108 +394,10 @@ export default function Settings({ ctx, onClose }) {
           <Sparkles size={15} className="text-iris-500 dark:text-iris-300" /> Plan with Claude
         </p>
         <p className="mb-3 text-xs text-slate-400">
-          Export your path, ask Claude to plan or restructure it, paste the reply back. Nothing is
-          ever deleted by a sync.
+          Copy the prompt, plan and talk through your day with Claude, then paste the reply back to
+          save its changes. Nothing is ever deleted by a sync.
         </p>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" onClick={copyExport} className="flex-1">
-            {copied ? (
-              <Check size={15} className="text-trail-700 dark:text-trail-400" />
-            ) : (
-              <Copy size={15} />
-            )}
-            {copied ? "Copied ✓" : "Copy export for Claude"}
-          </Button>
-          <a
-            href="/api/export.md"
-            download
-            className="shrink-0 text-xs text-slate-400 underline hover:text-trail-700 dark:hover:text-trail-400"
-          >
-            download instead
-          </a>
-        </div>
-        <textarea
-          rows={8}
-          value={md}
-          onChange={(e) => {
-            setMd(e.target.value);
-            setPreview(null); // an edited paste needs a fresh preview
-            setSynced(null);
-          }}
-          placeholder="Paste Claude's plan here…"
-          aria-label="Claude's plan"
-          className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 placeholder:text-slate-400 focus:border-trail-400 focus:outline-none focus:ring-2 focus:ring-trail-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-trail-800"
-        />
-        {preview ? (
-          <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
-            {countsLabel(preview.creates, (v) => v.count) ? (
-              <details>
-                <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">
-                  Creates: {countsLabel(preview.creates, (v) => v.count)}
-                </summary>
-                <ul className="mt-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {Object.entries(preview.creates).flatMap(([kind, v]) =>
-                    (v.items || []).map((it) => (
-                      <li key={`${kind}_${it.id}`}>
-                        + {kind.replace(/s$/, "")} “{it.title}”
-                      </li>
-                    )),
-                  )}
-                </ul>
-              </details>
-            ) : (
-              <p className="text-slate-500">Nothing new to create.</p>
-            )}
-            {preview.updates?.length ? (
-              <div>
-                <p className="font-medium text-slate-700 dark:text-slate-200">
-                  Updates: {preview.updates.length}
-                </p>
-                <ul className="mt-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {preview.updates.map((u) => (
-                    <li key={`${u.kind}_${u.id}`}>
-                      {u.kind} “{u.title}” —{" "}
-                      {Object.entries(u.changes || {})
-                        .map(([f, c]) => `${f}: ${c.from ?? "—"} → ${c.to ?? "—"}`)
-                        .join(" · ")}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">No updates to existing items.</p>
-            )}
-            {preview.warnings?.length ? (
-              <ul className="space-y-0.5 text-xs text-amber-600 dark:text-amber-500">
-                {preview.warnings.map((w, i) => (
-                  <li key={i}>⚠ {w}</li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="flex gap-2 pt-1">
-              <Button onClick={applySyncNow} disabled={syncBusy} className="flex-1">
-                Apply sync
-              </Button>
-              <Button variant="ghost" onClick={() => setPreview(null)} className="flex-1">
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button
-            variant="subtle"
-            onClick={previewSync}
-            disabled={syncBusy || !md.trim()}
-            className="mt-2 w-full"
-          >
-            Preview sync
-          </Button>
-        )}
-        {synced ? (
-          <p role="status" className="mt-2 text-sm text-trail-700 dark:text-trail-400">
-            {synced}
-          </p>
-        ) : null}
+        <PlanWithClaude ctx={ctx} />
       </div>
 
       <div className="border-t border-slate-200 pt-4 dark:border-slate-700">

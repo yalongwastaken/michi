@@ -3,6 +3,42 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [1.4.0] — 2026-07-14
+
+A new shape for the path. Momentum becomes home, the day gets a coach, and the
+whole app trades its blue-and-orange for the colors of a trail.
+
+### Added
+
+- **Home tab.** The repurposed momentum view is now the landing screen: the
+  streak, a new **Today at a glance** section (goal progress, what's still
+  planned, a jump into the day), the week in review, headline stats, and the
+  activity heatmap.
+- **Progression tab.** A dedicated home for the journey — waypoint/level,
+  the discipline (kyū/dan) grade, streak badges, and roadmap progress.
+- **Intensity.** Instead of setting raw numbers, pick how hard you're pushing —
+  **Easy · Steady · Focused · Intense** — and each preset sets your daily goal,
+  time budget, and weekly goals for you. A collapsible **Customize** still
+  exposes every exact number (and marks the preset "custom" when you do).
+- **Weekly goals.** Alongside the daily goal, a weekly completion target and an
+  active-days-per-week target, shown with progress on Home's "This week" card.
+- **Plan today with Claude, on the day.** The export/sync flow is surfaced as a
+  card on Today (auto-opens on your first visit each day), not just tucked in
+  Settings.
+
+### Changed
+
+- **Navigation.** The bottom bar is now **Home · Today · Plan · Progression**.
+  Roadmaps and Projects are consolidated behind one **Plan** tab with a
+  segmented toggle.
+- **Color scheme.** Sage green (progress, heatmap) and terracotta (streaks,
+  badges) replace the old indigo-and-persimmon; the companion's scarf follows.
+  Dark mode is now a warm charcoal instead of blue-tinted slate.
+- **The Claude export is a conversation.** The prompt now opens a coaching chat:
+  Claude plans from your roadmaps and tasks _and_ helps with ad-hoc goals that
+  aren't tracked in the app, folding anything worth keeping into saveable tasks.
+  The paste-back sync round-trip is unchanged — nothing is ever deleted by it.
+
 ## [1.3.0] — 2026-07-13
 
 型 kata — daily forms. Roadmaps are where you're going; kata are how you walk.

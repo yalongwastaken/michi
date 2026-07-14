@@ -6,8 +6,8 @@
 import { formatMeters } from "./format.js";
 
 const KEY = "michi.celebrated";
-// trail persimmon + iris indigo + a pinch of amber
-const COLORS = ["#F25C05", "#F47C36", "#5B67B7", "#A9B1DC", "#F59E0B"];
+// trail moss + iris terracotta + a pinch of amber gold
+const COLORS = ["#4E8640", "#6FA560", "#B95530", "#DC9C7F", "#E8A13C"];
 
 /** A 1.2s confetti burst overlay. No-op under prefers-reduced-motion (checked at
  * call time, so a live setting change is respected). Removes itself when done. */

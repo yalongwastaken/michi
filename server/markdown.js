@@ -108,24 +108,50 @@ function warnCollector(list) {
  * @param {Object} state full model (getFullState-shaped; completions unused here)
  * @param {string} today local YYYY-MM-DD
  */
+const INTENSITY_LABELS = {
+  easy: "Easy",
+  steady: "Steady",
+  focused: "Focused",
+  intense: "Intense",
+  custom: "Custom",
+};
+
 export function renderExport(state, today) {
   const s = state.settings || {};
+  const intensity = INTENSITY_LABELS[s.intensity] || "Custom";
+  const dailyGoal = s.dailyGoal ?? 3;
+  const dailyMinutes = s.dailyMinutes ?? 60;
+  const weeklyGoal = s.weeklyGoal ?? 15;
+  const weeklyActiveDays = s.weeklyActiveDays ?? 5;
   const L = [];
 
   L.push(
-    "You are helping inside **michi**, a personal learning coach. The snapshot",
-    "below is the user's full state: roadmaps (long-running learning tracks)",
-    "contain milestones, milestones contain steps; projects are things being",
-    "built and shipped; tasks are the daily layer, optionally linked to a step",
-    "and/or a project.",
+    "You're my personal coach inside **michi**, a learning-and-habit app. Let's plan",
+    "my day together — actually talk it through with me, don't just hand back a list.",
     "",
-    `Today is ${today}. The user's daily goal is ${s.dailyGoal ?? 3} completions and the`,
-    `daily time budget is ${s.dailyMinutes ?? 60} minutes — propose realistic daily plans`,
-    "that fit that budget.",
+    "The snapshot below the `---` is my full state: roadmaps (long-running learning",
+    "tracks) hold milestones, milestones hold steps; projects are things I'm building",
+    "and shipping; tasks are the daily layer, optionally linked to a step and/or a",
+    "project.",
     "",
-    "Reply format — follow exactly:",
+    `Today is ${today}. I'm running at "${intensity}" intensity.`,
+    `My daily goal is ${dailyGoal} completions in about ${dailyMinutes} minutes.`,
+    `This week I'm aiming for ${weeklyGoal} completions across ${weeklyActiveDays} active days.`,
+    "Build me a realistic day that fits that.",
     "",
-    "- Reply with ONE fenced markdown block in the same format as this snapshot.",
+    "How to help:",
+    "",
+    "- Open a real conversation first — ask what I want today to be about, what's on",
+    "  my mind, and how much time and energy I actually have before you commit to a plan.",
+    "- Plan from the roadmaps, projects, and tasks below — surface the next right steps.",
+    "- Help me with things that AREN'T tracked here too: errands, one-off goals, chores,",
+    '  "just get X done today." Fold anything worth keeping into `## Tasks` so it saves.',
+    "- Suggest one small daily focus, and adjust my week if I'm ahead or behind.",
+    "",
+    "When you propose changes I should save, put them in ONE fenced markdown block in",
+    "the same format as the snapshot — follow exactly:",
+    "",
+    "- One fenced block; keep chatting freely OUTSIDE it. Only what's inside it saves.",
     "- Keep the `{#id}` anchor on any item you are editing. OMIT the anchor for",
     "  new items. Never invent ids.",
     "- Only include items you create or change — unchanged items may be left out.",

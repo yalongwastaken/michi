@@ -195,7 +195,14 @@ const MASCOT_SPECIES = new Set([
 ]);
 const DEFAULT_SETTINGS = {
   theme: "system", // system | light | dark
+  // how hard the user is pushing — a preset that sets the four goal numbers below.
+  // easy | steady | focused | intense | custom (see client/src/lib/intensity.js).
+  // The numbers stay the source of truth for the engine/planner; intensity is the
+  // label the UI shows and the export prompt speaks.
+  intensity: "steady",
   dailyGoal: 3, // completions/day that count as "hit your goal"
+  weeklyGoal: 15, // completions/week the "This week" card aims for
+  weeklyActiveDays: 5, // active days/week the user aims to show up
   streakFreezes: 2, // missed days the streak can bridge before it breaks
   dailyMinutes: 60, // the planner's daily time budget
   defaultStepMin: 30, // assumed effort for a roadmap step with no estimate
@@ -231,6 +238,8 @@ const MAX_ACTIVE_KATA = 5;
 // computeStreak() walk back day-by-day (nearly) forever and wedge the event loop
 const SETTING_RANGES = {
   dailyGoal: [0, 1000], // 0 is valid "rest mode"
+  weeklyGoal: [0, 10000],
+  weeklyActiveDays: [0, 7],
   streakFreezes: [0, 365],
   dailyMinutes: [0, 1440],
   defaultStepMin: [0, 1440],

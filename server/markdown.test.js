@@ -91,11 +91,23 @@ const SEED = {
 
 test("export renders anchors, attribute tokens, and the prompt header", () => {
   db.importAll(SEED);
-  const out = md.renderExport(db.getFullState(), "2026-07-13");
-  // header: addressed to Claude, carries today + settings + the format rules
+  const state = {
+    ...db.getFullState(),
+    settings: {
+      dailyGoal: 3,
+      dailyMinutes: 60,
+      intensity: "steady",
+      weeklyGoal: 15,
+      weeklyActiveDays: 5,
+    },
+  };
+  const out = md.renderExport(state, "2026-07-13");
+  // header: a conversational coach prompt carrying today + goals + the format rules
   assert.match(out, /Today is 2026-07-13/);
-  assert.match(out, /daily goal is 3 completions/);
-  assert.match(out, /time budget is 60 minutes/);
+  assert.match(out, /"Steady" intensity/);
+  assert.match(out, /daily goal is 3 completions in about 60 minutes/);
+  assert.match(out, /aiming for 15 completions across 5 active days/);
+  assert.match(out, /AREN'T tracked here/); // coaches ad-hoc goals, not just roadmaps
   assert.match(out, /OMIT the anchor/);
   assert.match(out, /# michi snapshot · 2026-07-13/);
   // snapshot: anchors and only-the-present attribute tokens
