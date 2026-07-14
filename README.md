@@ -1,6 +1,6 @@
 # Michi — personal learning coach
 
-**v0.9.0** · self-hosted · single-user · no cloud · AI is optional & fully local
+**v1.0.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
 道 _michi_ — "the path." Where [Tsumiki](../tsumiki) coaches where your **money**
 should go, Michi coaches where your **time and effort** should go. It turns your
@@ -19,15 +19,22 @@ front door.
 
 - **Roadmaps** — a learning path broken into **milestones → steps**. Track % complete,
   set an optional **finish-by date** (Michi paces you to hit it), and reorder freely.
+  Steps and tasks carry free-form **notes** for the details that don't fit a title.
 - **Today** — the home screen. A **planner** looks at the whole picture (what's due,
   what's in progress, deadlines, which roadmaps are neglected, your streak) and
   assembles a _doable day_ that fits a time budget you set. Push items to tomorrow
   ("not today"), ask for "one more," and add tasks in plain language ("read SPI 30m
-  tomorrow"). Short **nudges** point out what needs attention.
+  tomorrow"). Short **nudges** point out what needs attention; a **backlog** view
+  holds everything that isn't today's business.
 - **Projects** — the meaningful things you want to build/ship, moved from idea →
-  in progress → shipped (because learning sticks when you build).
+  in progress → shipped (because learning sticks when you build), linkable to the
+  roadmap they exercise.
 - **Momentum** — a streak, a contribution-style heatmap, longest streak, active days,
+  waypoints walked (a light game layer — every completion is meters on the path),
   and per-roadmap progress. Streak **freezes** let you miss a day without losing it.
+- **Trust the tool** — deletes rest in a **trash** for 30 days, backups are one tap
+  away in Settings, and **Plan with Claude** round-trips your whole path through
+  Markdown — no integration, no API keys.
 
 ## Architecture
 
@@ -108,15 +115,18 @@ Your whole dataset is only kilobytes, so it fits in any model's context window i
 — even a small 1–3B model sees everything at once. Bigger models just reason a bit
 better; the deterministic planner is always the safety net.
 
-## Optional: a morning digest
+## Optional: a morning (and evening) digest
 
 `GET /api/digest?format=text` returns a plain-text summary of the day (streak + the
-planned items + one nudge). A cron job on the mini PC can pipe it to any local notifier
-— no cloud, no outbound calls from Michi:
+planned items + one nudge). With `?mode=evening` it looks back instead: what got done
+today, whether the streak held, and a short glimpse of tomorrow. A cron job on the
+mini PC can pipe either to any local notifier — no cloud, no outbound calls from Michi:
 
 ```cron
 # 7am: post today's plan to an ntfy topic on your tailnet (or pipe to notify-send, etc.)
 0 7 * * *  curl -s "http://localhost:4001/api/digest?format=text" | curl -s -d @- ntfy.local/michi
+# 9:30pm: the evening look-back — today's count, the streak, tomorrow's first steps
+30 21 * * *  curl -s "http://localhost:4001/api/digest?mode=evening&format=text" | curl -s -d @- ntfy.local/michi
 ```
 
 ## Reach it from your phone (Tailscale) + install as an app
@@ -135,6 +145,11 @@ would miss everything still in the WAL):
 ```bash
 make backup       # → backups/michi-YYYY-MM-DD.db (keeps the 14 most recent)
 ```
+
+The same snapshots are visible in the app — **Settings → Your data → Backups** shows
+when the last one ran (a quiet way to notice the nightly timer isn't), and a
+**Back up now** button takes one on the spot. In-app deletes are their own safety
+net: anything you remove rests in a trash for 30 days (**Settings → Trash**).
 
 Automate it nightly with the bundled systemd timer (02:00; `Persistent=true`, so a
 run missed while the box was off happens at the next boot):
@@ -171,26 +186,32 @@ update, but never delete.
 
 ## API
 
-| Method | Path                | Purpose                                                                                  |
-| ------ | ------------------- | ---------------------------------------------------------------------------------------- |
-| GET    | `/api/health`       | liveness check                                                                           |
-| GET    | `/api/state`        | the unified model (sans completion history — see `/api/export`)                          |
-| PUT    | `/api/state`        | replace the full model (the client's "save")                                             |
-| POST   | `/api/tasks`        | append a single task (lean write)                                                        |
-| POST   | `/api/complete`     | toggle a task/step done (`{kind,id,done}`)                                               |
-| GET    | `/api/today`        | the focused daily queue (`?day=`, `?limit=`)                                             |
-| GET    | `/api/plan`         | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)                             |
-| POST   | `/api/plan/skip`    | push a plan item to tomorrow (`{kind,id,day,on}`)                                        |
-| GET    | `/api/momentum`     | streak, heatmap, roadmap/project progress (`?day=`)                                      |
-| GET    | `/api/dashboard`    | today + momentum + plan + insights + weekly review, one round-trip (`?day=`, `?budget=`) |
-| GET    | `/api/digest`       | plain-text (`?format=text`) or JSON summary of the day                                   |
-| GET    | `/api/config`       | client capability probe (whether the local model is on)                                  |
-| GET    | `/api/export`       | download the full model incl. completion history as JSON                                 |
-| POST   | `/api/import`       | replace the model (and history) from an exported JSON                                    |
-| GET    | `/api/export.md`    | Markdown snapshot with an embedded prompt — hand it to Claude to plan                    |
-| POST   | `/api/sync/preview` | dry-run a pasted Markdown plan (`{markdown}`) — what would change                        |
-| POST   | `/api/sync/apply`   | apply a Markdown plan atomically (create + update only, never delete)                    |
-| POST   | `/api/reset`        | wipe everything and start fresh                                                          |
+| Method | Path                 | Purpose                                                                                  |
+| ------ | -------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/api/health`        | liveness check                                                                           |
+| GET    | `/api/state`         | the unified model (sans completion history — see `/api/export`)                          |
+| PUT    | `/api/state`         | replace the full model (the client's "save")                                             |
+| POST   | `/api/tasks`         | append a single task (lean write)                                                        |
+| POST   | `/api/complete`      | toggle a task/step done (`{kind,id,done}`)                                               |
+| GET    | `/api/today`         | the focused daily queue (`?day=`, `?limit=`)                                             |
+| GET    | `/api/plan`          | a doable day from the planner (`?day=`, `?budget=`, `?ai=1`)                             |
+| POST   | `/api/plan/skip`     | push a plan item to tomorrow (`{kind,id,day,on}`)                                        |
+| GET    | `/api/momentum`      | streak, heatmap, roadmap/project progress (`?day=`)                                      |
+| GET    | `/api/dashboard`     | today + momentum + plan + insights + weekly review, one round-trip (`?day=`, `?budget=`) |
+| GET    | `/api/digest`        | plain-text (`?format=text`) or JSON summary — `?mode=morning` (default) or `evening`     |
+| GET    | `/api/config`        | client capability probe (whether the local model is on)                                  |
+| GET    | `/api/export`        | download the full model incl. completion history as JSON                                 |
+| POST   | `/api/import`        | replace the model (and history) from an exported JSON                                    |
+| GET    | `/api/backups`       | list the snapshot folder — `{dir, items:[{file,sizeBytes,mtime}]}`, newest first         |
+| POST   | `/api/backup`        | take a WAL-safe snapshot now (same rotation as the nightly timer)                        |
+| GET    | `/api/trash`         | list deleted items resting in the 30-day trash                                           |
+| POST   | `/api/trash/restore` | restore one trash entry by `{id}` (colliding ids are remapped)                           |
+| DELETE | `/api/trash/:id`     | purge one trash entry permanently                                                        |
+| DELETE | `/api/trash`         | empty the whole trash permanently                                                        |
+| GET    | `/api/export.md`     | Markdown snapshot with an embedded prompt — hand it to Claude to plan                    |
+| POST   | `/api/sync/preview`  | dry-run a pasted Markdown plan (`{markdown}`) — what would change                        |
+| POST   | `/api/sync/apply`    | apply a Markdown plan atomically (create + update only, never delete)                    |
+| POST   | `/api/reset`         | wipe everything and start fresh                                                          |
 
 ## License
 
