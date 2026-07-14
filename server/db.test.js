@@ -30,6 +30,7 @@ test("empty state has defaults", () => {
   assert.deepEqual(s.roadmaps, []);
   assert.deepEqual(s.tasks, []);
   assert.equal(s.profile.onboarded, false);
+  assert.equal(s.profile.mascot, "shiba"); // the default companion
   assert.equal(s.settings.dailyGoal, 3);
 });
 
@@ -109,6 +110,25 @@ test("validateState rejects a non-string profile name", () => {
   assert.ok(db.validateState({ profile: ["not", "an", "object"] }));
   assert.equal(db.validateState({ profile: { name: "Sam" } }), null);
   assert.equal(db.validateState({ profile: {} }), null);
+});
+
+test("validateState accepts each of the nine companions and rejects strangers", () => {
+  for (const id of [
+    "shiba",
+    "panda",
+    "daruma",
+    "kitsune",
+    "tanuki",
+    "raccoon",
+    "maneki",
+    "rabbit",
+    "crane",
+  ]) {
+    assert.equal(db.validateState({ profile: { mascot: id } }), null);
+  }
+  assert.ok(db.validateState({ profile: { mascot: "dragon" } }).includes("profile.mascot"));
+  assert.ok(db.validateState({ profile: { mascot: "" } }).includes("profile.mascot"));
+  assert.equal(db.validateState({ profile: { name: "Sam" } }), null); // absent → default applies
 });
 
 test("replaceCompletions skips rows with an invalid day or kind, defaults a bad ts", () => {

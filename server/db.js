@@ -151,7 +151,22 @@ const DEFAULT_PROFILE = {
   name: "",
   focusAreas: [], // freeform tags the user is investing in right now
   onboarded: false,
+  mascot: "shiba", // which companion walks the path (see MASCOT_SPECIES)
 };
+
+// the nine companions the client's Mascot engine knows how to draw — an unknown id
+// would render as a silent shiba fallback forever, so reject it at the door instead
+const MASCOT_SPECIES = new Set([
+  "shiba",
+  "panda",
+  "daruma",
+  "kitsune",
+  "tanuki",
+  "raccoon",
+  "maneki",
+  "rabbit",
+  "crane",
+]);
 const DEFAULT_SETTINGS = {
   theme: "system", // system | light | dark
   dailyGoal: 3, // completions/day that count as "hit your goal"
@@ -337,6 +352,9 @@ export function validateState(s) {
     }
     if (s.profile.name != null && typeof s.profile.name !== "string") {
       return "profile.name must be a string";
+    }
+    if (s.profile.mascot != null && !MASCOT_SPECIES.has(s.profile.mascot)) {
+      return `profile.mascot must be one of: ${[...MASCOT_SPECIES].join(", ")}`;
     }
   }
   if (s.settings != null) {
