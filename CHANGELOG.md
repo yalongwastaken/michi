@@ -3,6 +3,49 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [1.3.0] — 2026-07-13
+
+型 kata — daily forms. Roadmaps are where you're going; kata are how you walk.
+
+### Added
+
+- **Kata (型).** Small self-regulation practices — greyscale phone, no feeds
+  before noon, shutdown ritual — that you commit to (at most 5 active) and log
+  daily from a chip strip on Today. Each honored kata earns +5 m on the path;
+  honoring all of them makes a **clean day** (+15 m). Kata count toward the
+  heatmap and XP but never inflate the main streak or daily goal — showing up
+  and doing the work stay separate ledgers.
+- **The dōjō (道場).** A training-hall sheet: your active kata, a 12-form
+  built-in library, custom forms of your own, and suggestions michi derives
+  from your actual data ("3 completions after 21:00 this week — close the day
+  on purpose"). Kata honors are excluded from the evidence, so the forms can't
+  recommend themselves.
+- **Discipline grades (級/段).** Clean days climb a real grading ladder — 10級
+  to 1級, then 初段 shodan through 十段 jūdan ("the path continues") — shown on
+  Momentum with a grade ring, clean-day streak, and a 7-day dot row. Grade-ups
+  celebrate quietly: the indigo locked-in aura, no confetti. Japanese terms
+  ship with romaji and translation throughout, marked `lang="ja"` for screen
+  readers.
+- **Everywhere else:** morning digest lists today's kata; the evening digest
+  names what's still open ("shutdown ritual still open") or declares 型 held;
+  the Claude sync grammar gains a `## Kata` section (checkbox = active,
+  honoring stays in-app); deleted kata rest in the trash like everything else.
+
+### Fixed (pre-release audit)
+
+- Retiring a kata mid-day re-reconciles today's snapshot, so a clean day can
+  never become unreachable; un-honoring everything resets the day fresh.
+- The honor endpoint rejects future days (no pre-earning grades) and
+  non-boolean flags; the clean-day celebration is judged from server truth,
+  not the optimistic UI; sync previews now warn when a plan would exceed the
+  5-active cap instead of failing only at apply.
+
+### Tests
+
+- Server 219 (+41), client 48 (+3): snapshot reconciliation, grade-ladder
+  edges, streak/XP invariants, MD round-trips, suggestion evidence rules,
+  future-day rejection, celebration dedupe seams.
+
 ## [1.2.0] — 2026-07-13
 
 The companion update: michi stops being an app with a mascot and becomes a
