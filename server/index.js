@@ -29,6 +29,7 @@ import { insights } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
+import { listBackups, runBackup, backupDir } from "./backup.js";
 import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
 
 // a valid calendar day string, else server-local today — so a malformed ?day= can't
@@ -99,7 +100,10 @@ app.get("/api/config", (_req, res) => {
 // the heatmap arrive precomputed via /api/momentum); /api/export carries it.
 app.get("/api/state", (_req, res) => res.json(getState()));
 
-// pragmatic full-state replace (client's "save" — see db.js)
+// pragmatic full-state replace (client's "save" — see db.js). The response is
+// the fresh state plus `trashed: [{id, kind, title}]`, the receipt of whatever
+// this PUT snapshotted into trash (empty when nothing vanished) — what the
+// client's undo toast binds to.
 app.put("/api/state", (req, res) => {
   const body = req.body || {};
   const bad = validateState(body);
@@ -209,12 +213,17 @@ app.get("/api/dashboard", (req, res, next) => {
   }
 });
 
-// a plain-text (or JSON) summary for a morning cron → local notifier (no cloud)
+// a plain-text (or JSON) summary for a cron → local notifier (no cloud).
+// ?mode=morning (default) looks at the day ahead; ?mode=evening looks back.
 app.get("/api/digest", (req, res, next) => {
   try {
+    const mode = req.query.mode ?? "morning";
+    if (mode !== "morning" && mode !== "evening") {
+      return res.status(400).json({ error: "mode must be 'morning' or 'evening'" });
+    }
     const state = getFullState(); // streak + plan both read history
     const day = resolveDay(req.query.day);
-    const d = buildDigest(state, planOpts(state, day));
+    const d = buildDigest(state, { ...planOpts(state, day), mode });
     if (req.query.format === "text" || (req.get("accept") || "").includes("text/plain")) {
       res.type("text/plain").send(d.text);
     } else {
@@ -268,6 +277,11 @@ app.post("/api/trash/restore", (req, res) => {
   try {
     res.json(restoreTrash(id));
   } catch (e) {
+    if (e instanceof ConflictError) {
+      // a step row whose milestone is gone — the entry exists but can't land
+      // here; the message points at the roadmap row as the working restore path
+      return res.status(409).json({ error: e.message });
+    }
     console.warn("POST /api/trash/restore failed:", e.message);
     res.status(404).json({ error: "could not find that trash entry" });
   }
@@ -281,6 +295,28 @@ app.delete("/api/trash/:id", (req, res) => {
   res.json({ ok: true });
 });
 app.delete("/api/trash", (_req, res) => res.json({ ok: true, purged: purgeAllTrash() }));
+
+// ── backups: the nightly snapshot folder, visible from the app ───────────────
+// Reads the same folder the systemd timer / `make backup` writes to, so Settings
+// can show whether the safety net is actually catching anything.
+app.get("/api/backups", (_req, res) => {
+  try {
+    res.json({ dir: backupDir(), items: listBackups() });
+  } catch (e) {
+    console.warn("GET /api/backups failed:", e.message);
+    res.status(500).json({ error: "could not read the backups folder" });
+  }
+});
+
+// take a snapshot right now (same VACUUM INTO + keep-14 rotation as the timer)
+app.post("/api/backup", (_req, res) => {
+  try {
+    res.json(runBackup());
+  } catch (e) {
+    console.warn("POST /api/backup failed:", e.message);
+    res.status(500).json({ error: "backup failed — is the backups folder writable?" });
+  }
+});
 
 // data export (download the whole dataset) + import (validated full replace).
 // Export is the one read that ships the completions log — a backup must carry

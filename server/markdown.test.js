@@ -120,6 +120,27 @@ test("parse round-trips an export: no creates, no updates, no warnings", () => {
   }
 });
 
+test("a project summary starting with '> ' round-trips instead of parsing as a blockquote", () => {
+  const state = {
+    roadmaps: [],
+    milestones: [],
+    steps: [],
+    projects: [
+      { id: "pq", title: "Quoted", status: "idea", summary: "> ship the MVP first", position: 0 },
+    ],
+    tasks: [],
+    settings: {},
+  };
+  const out = md.renderExport(state, "2026-07-13");
+  assert.match(out, /^\\> ship the MVP first$/m); // escaped on the way out
+  const parsed = md.parseSync(out);
+  assert.equal(parsed.projects[0].summary, "> ship the MVP first"); // unescaped on the way back
+  assert.ok(!parsed.warnings.some((w) => /skipped line/.test(w)));
+  // …and the round-trip is a no-op sync, not a perpetual warning
+  const plan = md.planSync(parsed, { ...state, completions: [] });
+  assert.deepEqual(plan.updates, []);
+});
+
 test("a fenced reply is unwrapped", () => {
   const parsed = md.parseSync("Here you go!\n```markdown\n## Tasks\n- [ ] fenced task ~15m\n```\n");
   assert.equal(parsed.tasks.length, 1);

@@ -27,6 +27,14 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/home/youruser/michi/server/data
+# the backups folder too — Settings' "Back up now" snapshots in-process, and a
+# strict ProtectSystem would otherwise turn that button into an EROFS error.
+# (the leading "-" means "skip if missing", so a box that hasn't run `make backup`
+# yet still boots. NOTE: the mount namespace is fixed when the unit STARTS, so
+# the folder must exist before then — creating it while the service runs isn't
+# enough. To make in-app backups writable later: mkdir the folder, then
+# `systemctl restart michi`.)
+ReadWritePaths=-/home/youruser/michi/backups
 
 [Install]
 WantedBy=multi-user.target

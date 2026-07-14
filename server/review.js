@@ -4,10 +4,56 @@
 import { roadmapProgress } from "./engine.js";
 import { dayKey, shiftDay } from "./dates.js";
 
+function weekdayName(day) {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "long",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * One deterministic sentence about the week's shape — the most interesting true
+ * thing, in priority order: a standout day, a roadmap that clearly led, a notable
+ * shift from last week (gentle when down — never shaming), or the quiet-week line.
+ * Null when the week was ordinary — the card's numbers already tell that story.
+ */
+function reflect({ byDay, completed, byRoadmap, rById, prevCompleted }) {
+  // (a) a standout day: a unique best with real volume
+  const best = byDay.reduce((a, d) => (d.count > a.count ? d : a), { count: 0 });
+  const ties = byDay.filter((d) => d.count === best.count).length;
+  if (best.count >= 3 && ties === 1) {
+    return `${weekdayName(best.date)} was the big one — ${best.count} finished.`;
+  }
+  // (b) a roadmap that clearly led the week
+  for (const [rid, n] of byRoadmap) {
+    const title = rById.get(rid)?.title;
+    if (title && n >= 3 && n * 10 >= completed * 6) {
+      return `Most of the week went down the ${title} path.`;
+    }
+  }
+  // (c) a notable shift against the prior week
+  if (completed >= 4 && prevCompleted >= 1 && completed >= prevCompleted * 2) {
+    // "twice" only when it truly is ~2× — a 3×-or-more week gets its real number
+    const ratio = completed / prevCompleted;
+    if (ratio >= 3) {
+      return `${Math.round(ratio)}× last week's pace — ${completed} finished to last week's ${prevCompleted}.`;
+    }
+    return `Twice last week's pace — ${completed} finished to last week's ${prevCompleted}.`;
+  }
+  if (completed >= 1 && prevCompleted >= 4 && prevCompleted >= completed * 2) {
+    return `A lighter week than last — and that's fine; ${completed} finished still moved the path.`;
+  }
+  // (d) a quiet week
+  if (completed === 0) {
+    return "A quiet week on the path — one step gets it moving.";
+  }
+  return null;
+}
+
 /**
  * @param {Object} state full model
  * @param {Object} [opts] { today, days=7 }
- * @returns {{from,to,days,completed,activeDays,byDay,finished,advanced,slipped}}
+ * @returns {{from,to,days,completed,activeDays,byDay,finished,advanced,slipped,reflection}}
  */
 export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
   const from = shiftDay(today, -(days - 1));
@@ -28,6 +74,7 @@ export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
   const seen = new Set();
   const finished = [];
   const advanced = new Set();
+  const byRoadmap = new Map(); // rid → completions this week, for the reflection
   for (const c of [...comps].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0))) {
     let title = "(removed)";
     let rid = null;
@@ -46,6 +93,7 @@ export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
     }
     if (rid) {
       advanced.add(rid);
+      byRoadmap.set(rid, (byRoadmap.get(rid) || 0) + 1);
     }
     const key = `${c.kind}:${c.refId}`;
     if (!seen.has(key)) {
@@ -70,6 +118,12 @@ export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
     }
   }
 
+  // the prior window (same length, ending the day before `from`) for the reflection
+  const prevFrom = shiftDay(from, -days);
+  const prevCompleted = (state.completions || []).filter(
+    (c) => c.day && c.day >= prevFrom && c.day < from,
+  ).length;
+
   return {
     from,
     to: today,
@@ -80,5 +134,6 @@ export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
     finished,
     advanced: [...advanced].map((id) => rById.get(id)?.title).filter(Boolean),
     slipped,
+    reflection: reflect({ byDay, completed: comps.length, byRoadmap, rById, prevCompleted }),
   };
 }

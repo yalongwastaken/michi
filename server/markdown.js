@@ -196,7 +196,10 @@ export function renderExport(state, today) {
       L.push(meta.join(" · "));
     }
     if (p.summary) {
-      L.push(cleanTitle(p.summary));
+      // a summary starting with "> " would parse back as a blockquote and be
+      // skipped (with a warning) on every round-trip — escape the leading
+      // marker on the way out; the parse's summary branch unescapes it
+      L.push(cleanTitle(p.summary).replace(/^>/, "\\>"));
     }
     L.push("");
   }
@@ -510,9 +513,10 @@ export function parseSync(markdown) {
         }
         continue;
       }
-      // any other plain line under a project heading is its summary
+      // any other plain line under a project heading is its summary — undoing
+      // renderExport's escape of a leading ">" (see the export section)
       if (out.projects[cur.project].summary === undefined) {
-        out.projects[cur.project].summary = line;
+        out.projects[cur.project].summary = line.replace(/^\\>/, ">");
         continue;
       }
     }

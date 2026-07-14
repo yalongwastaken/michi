@@ -52,6 +52,90 @@ test("resolves finished titles + advanced roadmaps, marks removed", () => {
   assert.deepEqual(r.advanced, ["Embedded"]);
 });
 
+// completion-row factory for the reflection fixtures: n rows on `day`
+const comps = (day, n, refId = "s1", kind = "step") =>
+  Array.from({ length: n }, (_, i) => ({ id: `${day}_${i}`, day, kind, refId }));
+
+test("reflection: a standout day wins first", () => {
+  const r = weeklyReview(
+    state({
+      completions: [...comps("2026-06-23", 5), ...comps("2026-06-21", 2)],
+    }),
+    { today: "2026-06-23" }, // 2026-06-23 is a Tuesday
+  );
+  assert.equal(r.reflection, "Tuesday was the big one — 5 finished.");
+});
+
+test("reflection: a roadmap that clearly led, when no day stands out", () => {
+  const r = weeklyReview(
+    state({
+      completions: [...comps("2026-06-22", 2), ...comps("2026-06-23", 2)], // 2+2, tied days
+    }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(r.reflection, "Most of the week went down the Embedded path.");
+});
+
+test("reflection: notably faster than last week", () => {
+  // task completions with no roadmap link, spread so no day or path dominates
+  const r = weeklyReview(
+    state({
+      completions: [
+        ...comps("2026-06-22", 2, "loose", "task"),
+        ...comps("2026-06-23", 2, "loose", "task"),
+        ...comps("2026-06-14", 2, "loose", "task"), // prior week
+      ],
+    }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(r.reflection, "Twice last week's pace — 4 finished to last week's 2.");
+});
+
+test("reflection: three-times-plus the pace says the real multiple, not 'twice'", () => {
+  // 6 finished vs 2 last week, spread so no day or roadmap dominates
+  const r = weeklyReview(
+    state({
+      completions: [
+        ...comps("2026-06-21", 2, "loose", "task"),
+        ...comps("2026-06-22", 2, "loose", "task"),
+        ...comps("2026-06-23", 2, "loose", "task"),
+        ...comps("2026-06-14", 2, "loose", "task"), // prior week
+      ],
+    }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(r.reflection, "3× last week's pace — 6 finished to last week's 2.");
+});
+
+test("reflection: a lighter week stays gentle — never shaming", () => {
+  const r = weeklyReview(
+    state({
+      completions: [
+        ...comps("2026-06-23", 1, "loose", "task"),
+        ...comps("2026-06-21", 1, "loose", "task"),
+        ...comps("2026-06-14", 6, "loose", "task"), // prior week was big
+      ],
+    }),
+    { today: "2026-06-23" },
+  );
+  assert.equal(
+    r.reflection,
+    "A lighter week than last — and that's fine; 2 finished still moved the path.",
+  );
+});
+
+test("reflection: a quiet week gets the gentle line", () => {
+  const r = weeklyReview(state(), { today: "2026-06-23" });
+  assert.equal(r.reflection, "A quiet week on the path — one step gets it moving.");
+});
+
+test("reflection: an ordinary week says nothing at all", () => {
+  const r = weeklyReview(state({ completions: comps("2026-06-23", 1, "loose", "task") }), {
+    today: "2026-06-23",
+  });
+  assert.equal(r.reflection, null);
+});
+
 test("flags slipped: overdue tasks and past-due roadmaps", () => {
   const r = weeklyReview(
     state({

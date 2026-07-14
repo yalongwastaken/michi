@@ -12,6 +12,8 @@ import { rmSync } from "node:fs";
 
 const DB = join(tmpdir(), `michi-http-test-${process.pid}.db`);
 process.env.MICHI_DB = DB; // must be set before index.js (→ db.js) is imported
+const BACKUPS = join(tmpdir(), `michi-http-test-backups-${process.pid}`);
+process.env.MICHI_BACKUPS = BACKUPS; // keep snapshot tests out of the real ./backups
 
 const { app } = await import("./index.js");
 const server = await new Promise((resolve) => {
@@ -28,6 +30,7 @@ test.after(() => {
       /* ignore */
     }
   }
+  rmSync(BACKUPS, { recursive: true, force: true });
 });
 
 const api = (path, opts) => fetch(base + path, opts);
@@ -71,6 +74,7 @@ test("PUT /api/state happy path: saves and bumps the rev", async () => {
     ["t-put"],
   );
   assert.ok(!("completions" in s)); // write responses stay slim
+  assert.deepEqual(s.trashed, []); // …but always carry the (empty) trash receipt
 });
 
 test("PUT /api/state with a stale rev → 409 carrying the fresh state", async () => {
@@ -215,6 +219,35 @@ test("GET /api/digest?format=text renders the plain-text morning summary", async
   assert.equal(typeof json.text, "string");
 });
 
+test("GET /api/digest?mode=evening looks back; junk modes get a 400", async () => {
+  const res = await api("/api/digest?mode=evening&format=text");
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /· evening/);
+  const json = await (await api("/api/digest?mode=evening")).json();
+  assert.equal(json.mode, "evening");
+  assert.ok(Array.isArray(json.tomorrow));
+  const bad = await api("/api/digest?mode=someday");
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /mode/);
+});
+
+test("backups: POST /api/backup snapshots, GET /api/backups lists newest first", async () => {
+  const empty = await (await api("/api/backups")).json();
+  assert.deepEqual(empty.items, []); // no folder yet — a calm empty list
+  assert.equal(typeof empty.dir, "string");
+
+  const res = await send("POST", "/api/backup", {});
+  assert.equal(res.status, 200);
+  const entry = await res.json();
+  assert.match(entry.file, /^michi-\d{4}-\d{2}-\d{2}\.db$/);
+  assert.ok(entry.sizeBytes > 0);
+  assert.ok(!Number.isNaN(Date.parse(entry.mtime)));
+
+  const list = await (await api("/api/backups")).json();
+  assert.equal(list.items.length, 1); // a same-day re-run replaces, not duplicates
+  assert.deepEqual(list.items[0], entry);
+});
+
 test("GET /api/export.md serves the Claude-ready markdown snapshot", async () => {
   const res = await api("/api/export.md");
   assert.equal(res.status, 200);
@@ -281,8 +314,13 @@ test("trash: a delete-by-absence is listed, restorable, and purgeable over HTTP"
   cur = await (await api("/api/state")).json();
   const wipe = await send("PUT", "/api/state", { rev: cur.rev, tasks: [] });
   assert.equal(wipe.status, 200);
+  // the PUT's own response says what it trashed — the client's undo toast
+  // binds to these ids rather than guessing at the newest trash row
+  const receipt = (await wipe.json()).trashed;
+  assert.deepEqual(receipt.map((r) => r.kind).sort(), ["roadmap", "task"]);
   const items = (await (await api("/api/trash")).json()).items;
   assert.equal(items.length, 2);
+  assert.deepEqual(new Set(items.map((i) => i.id)), new Set(receipt.map((r) => r.id)));
   const rm = items.find((i) => i.kind === "roadmap");
   assert.equal(rm.title, "Trash Track");
   assert.equal(rm.counts, "1 milestone · 1 step"); // derived from the payload
@@ -313,6 +351,55 @@ test("trash: a delete-by-absence is listed, restorable, and purgeable over HTTP"
   const flushed = await (await api("/api/trash", { method: "DELETE" })).json();
   assert.equal(flushed.ok, true);
   assert.deepEqual((await (await api("/api/trash")).json()).items, []);
+});
+
+test("trash: a lone step delete is caught, and an orphaned step restore is a clear 409", async () => {
+  // a fresh tree; flush whatever earlier tests left in the trash first
+  const setup = await send("PUT", "/api/state", {
+    roadmaps: [{ id: "SR", title: "Step Track" }],
+    milestones: [{ id: "SM", roadmapId: "SR", title: "Only" }],
+    steps: [{ id: "SS", milestoneId: "SM", title: "Lone step" }],
+    tasks: [{ id: "st-t", title: "linked", stepId: "SS" }],
+  });
+  assert.equal(setup.status, 200);
+  await api("/api/trash", { method: "DELETE" });
+
+  // the client's per-step delete: step gone, task unlinked, roadmap survives
+  const del = await send("PUT", "/api/state", {
+    roadmaps: [{ id: "SR", title: "Step Track" }],
+    milestones: [{ id: "SM", roadmapId: "SR", title: "Only" }],
+    steps: [],
+    tasks: [{ id: "st-t", title: "linked", stepId: null }],
+  });
+  assert.equal(del.status, 200);
+  assert.deepEqual(
+    (await del.json()).trashed.map((r) => [r.kind, r.title]),
+    [["step", "Lone step"]],
+  );
+  const [row] = (await (await api("/api/trash")).json()).items;
+  assert.equal(row.kind, "step");
+  assert.equal(row.counts, null); // steps have nothing to count
+
+  // restore while the milestone is alive: the step AND its task link come back
+  const restore = await send("POST", "/api/trash/restore", { id: row.id });
+  assert.equal(restore.status, 200);
+  const body = await restore.json();
+  assert.ok(body.state.steps.some((s) => s.id === "SS"));
+  assert.equal(body.state.tasks.find((t) => t.id === "st-t").stepId, "SS");
+
+  // delete the step again, then the whole roadmap — the step row's milestone is gone
+  await send("PUT", "/api/state", {
+    roadmaps: [{ id: "SR", title: "Step Track" }],
+    milestones: [{ id: "SM", roadmapId: "SR", title: "Only" }],
+    steps: [],
+    tasks: [{ id: "st-t", title: "linked", stepId: null }],
+  });
+  await send("PUT", "/api/state", { tasks: [{ id: "st-t", title: "linked" }] });
+  const stepRow = (await (await api("/api/trash")).json()).items.find((i) => i.kind === "step");
+  const refused = await send("POST", "/api/trash/restore", { id: stepRow.id });
+  assert.equal(refused.status, 409); // not a 404 — the entry exists, it just can't land
+  assert.match((await refused.json()).error, /milestone is gone.*restore the whole roadmap/);
+  await api("/api/trash", { method: "DELETE" }); // leave a clean trash for later tests
 });
 
 test("trash never rides along with state or export; import never trashes", async () => {
