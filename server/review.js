@@ -58,7 +58,11 @@ function reflect({ byDay, completed, byRoadmap, rById, prevCompleted }) {
 export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
   const from = shiftDay(today, -(days - 1));
   const inRange = (d) => d && d >= from && d <= today;
-  const comps = (state.completions || []).filter((c) => inRange(c.day));
+  // kata are practice, not "work finished" — they have their own ledger (discipline
+  // grade + clean days). Exclude them here so the weekly count and the finished list
+  // match the daily goal's semantics (tasks + steps only), instead of being inflated
+  // by honor rows that also can't resolve a title (they'd show as "(removed)").
+  const comps = (state.completions || []).filter((c) => inRange(c.day) && c.kind !== "kata");
 
   const byDay = [];
   for (let i = 0; i < days; i++) {
@@ -121,7 +125,7 @@ export function weeklyReview(state, { today = dayKey(), days = 7 } = {}) {
   // the prior window (same length, ending the day before `from`) for the reflection
   const prevFrom = shiftDay(from, -days);
   const prevCompleted = (state.completions || []).filter(
-    (c) => c.day && c.day >= prevFrom && c.day < from,
+    (c) => c.day && c.day >= prevFrom && c.day < from && c.kind !== "kata",
   ).length;
 
   return {
