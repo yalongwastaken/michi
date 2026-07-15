@@ -1,0 +1,1133 @@
+{
+  "profile": {
+    "name": "Sam",
+    "focusAreas": [
+      "Embedded",
+      "Rust"
+    ],
+    "onboarded": true,
+    "mascot": "kitsune"
+  },
+  "settings": {
+    "theme": "system",
+    "intensity": "steady",
+    "dailyGoal": 3,
+    "weeklyGoal": 15,
+    "weeklyActiveDays": 5,
+    "streakFreezes": 2,
+    "dailyMinutes": 60,
+    "defaultStepMin": 30,
+    "taskDefaultMin": 20
+  },
+  "roadmaps": [
+    {
+      "id": "rm_embedded",
+      "title": "Bare-metal embedded",
+      "sourceUrl": null,
+      "color": "#4E8640",
+      "archived": false,
+      "position": 0,
+      "createdAt": "2026-06-04T09:00:00.000Z",
+      "targetDate": "2026-10-12",
+      "stepMinutes": 30
+    },
+    {
+      "id": "rm_rust",
+      "title": "Rust, in earnest",
+      "sourceUrl": null,
+      "color": "#B95530",
+      "archived": false,
+      "position": 1,
+      "createdAt": "2026-06-14T09:00:00.000Z",
+      "targetDate": "2026-12-11",
+      "stepMinutes": 30
+    },
+    {
+      "id": "rm_jp",
+      "title": "Japanese N5",
+      "sourceUrl": null,
+      "color": "#F59E0B",
+      "archived": false,
+      "position": 2,
+      "createdAt": "2026-06-19T09:00:00.000Z",
+      "targetDate": "2026-09-12",
+      "stepMinutes": 20
+    },
+    {
+      "id": "rm_old",
+      "title": "Web bootcamp",
+      "sourceUrl": null,
+      "color": "#64748B",
+      "archived": true,
+      "position": 3,
+      "createdAt": "2026-03-16T09:00:00.000Z",
+      "targetDate": null,
+      "stepMinutes": 30
+    }
+  ],
+  "milestones": [
+    {
+      "id": "ms_e_fund",
+      "roadmapId": "rm_embedded",
+      "title": "Fundamentals",
+      "position": 0
+    },
+    {
+      "id": "ms_e_periph",
+      "roadmapId": "rm_embedded",
+      "title": "Peripherals",
+      "position": 1
+    },
+    {
+      "id": "ms_r_own",
+      "roadmapId": "rm_rust",
+      "title": "Ownership",
+      "position": 0
+    },
+    {
+      "id": "ms_r_async",
+      "roadmapId": "rm_rust",
+      "title": "Async",
+      "position": 1
+    },
+    {
+      "id": "ms_j_kana",
+      "roadmapId": "rm_jp",
+      "title": "Kana",
+      "position": 0
+    },
+    {
+      "id": "ms_o_html",
+      "roadmapId": "rm_old",
+      "title": "HTML & CSS",
+      "position": 0
+    }
+  ],
+  "steps": [
+    {
+      "id": "st_gpio",
+      "milestoneId": "ms_e_fund",
+      "title": "Blink an LED (GPIO)",
+      "status": "done",
+      "position": 0,
+      "resourceUrl": "https://docs.rs-online.com/gpio",
+      "notes": "mind the pull-up on pin 4",
+      "doneAt": "2026-07-05T18:00:00.000Z"
+    },
+    {
+      "id": "st_uart",
+      "milestoneId": "ms_e_fund",
+      "title": "UART hello world",
+      "status": "done",
+      "position": 1,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": "2026-07-08T18:00:00.000Z"
+    },
+    {
+      "id": "st_timers",
+      "milestoneId": "ms_e_fund",
+      "title": "Timers & interrupts",
+      "status": "doing",
+      "position": 2,
+      "resourceUrl": null,
+      "notes": "NVIC priorities still fuzzy",
+      "doneAt": null
+    },
+    {
+      "id": "st_adc",
+      "milestoneId": "ms_e_fund",
+      "title": "ADC basics",
+      "status": "todo",
+      "position": 3,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_spi",
+      "milestoneId": "ms_e_periph",
+      "title": "SPI driver",
+      "status": "todo",
+      "position": 0,
+      "resourceUrl": "https://www.analog.com/spi-intro",
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_i2c",
+      "milestoneId": "ms_e_periph",
+      "title": "I2C sensor read",
+      "status": "todo",
+      "position": 1,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_dma",
+      "milestoneId": "ms_e_periph",
+      "title": "DMA transfers",
+      "status": "todo",
+      "position": 2,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_borrow",
+      "milestoneId": "ms_r_own",
+      "title": "Borrow-checker drills",
+      "status": "done",
+      "position": 0,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": "2026-07-10T18:00:00.000Z"
+    },
+    {
+      "id": "st_life",
+      "milestoneId": "ms_r_own",
+      "title": "Lifetimes in depth",
+      "status": "doing",
+      "position": 1,
+      "resourceUrl": "https://doc.rust-lang.org/nomicon/lifetimes.html",
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_smart",
+      "milestoneId": "ms_r_own",
+      "title": "Smart pointers (Box/Rc/RefCell)",
+      "status": "todo",
+      "position": 2,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_fut",
+      "milestoneId": "ms_r_async",
+      "title": "Futures & pinning",
+      "status": "todo",
+      "position": 0,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_tokio",
+      "milestoneId": "ms_r_async",
+      "title": "Tokio basics",
+      "status": "todo",
+      "position": 1,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_hira",
+      "milestoneId": "ms_j_kana",
+      "title": "Hiragana",
+      "status": "done",
+      "position": 0,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": "2026-07-02T18:00:00.000Z"
+    },
+    {
+      "id": "st_kata",
+      "milestoneId": "ms_j_kana",
+      "title": "Katakana",
+      "status": "doing",
+      "position": 1,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": null
+    },
+    {
+      "id": "st_html",
+      "milestoneId": "ms_o_html",
+      "title": "Semantic HTML",
+      "status": "done",
+      "position": 0,
+      "resourceUrl": null,
+      "notes": null,
+      "doneAt": "2026-03-26T18:00:00.000Z"
+    }
+  ],
+  "projects": [
+    {
+      "id": "pj_blinky",
+      "title": "Blinky firmware",
+      "status": "active",
+      "repoUrl": "https://github.com/sam/blinky",
+      "summary": "A tiny RP2040 firmware to drive an RGB LED — my embedded playground.",
+      "position": 0,
+      "createdAt": "2026-06-24T09:00:00.000Z",
+      "shippedAt": null,
+      "roadmapId": "rm_embedded"
+    },
+    {
+      "id": "pj_site",
+      "title": "Portfolio site",
+      "status": "shipped",
+      "repoUrl": "https://github.com/sam/portfolio",
+      "summary": "A small static site for projects and notes.",
+      "position": 0,
+      "createdAt": "2026-05-15T09:00:00.000Z",
+      "shippedAt": "2026-06-26T18:00:00.000Z",
+      "roadmapId": null
+    },
+    {
+      "id": "pj_cli",
+      "title": "CLI todo in Rust",
+      "status": "idea",
+      "repoUrl": null,
+      "summary": "An excuse to practice ownership: a fast terminal task list.",
+      "position": 0,
+      "createdAt": "2026-07-06T09:00:00.000Z",
+      "shippedAt": null,
+      "roadmapId": "rm_rust"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "tk_spi",
+      "title": "Read the SPI datasheet §3",
+      "status": "todo",
+      "due": "2026-07-14",
+      "recurrence": null,
+      "stepId": "st_spi",
+      "projectId": null,
+      "estMin": 30,
+      "position": 0,
+      "notes": "left off at §2.4 — clock polarity",
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_life",
+      "title": "Rust: work through the lifetimes chapter",
+      "status": "todo",
+      "due": "2026-07-14",
+      "recurrence": null,
+      "stepId": "st_life",
+      "projectId": null,
+      "estMin": 25,
+      "position": 1,
+      "notes": null,
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_board",
+      "title": "Order the dev board + jumper wires",
+      "status": "todo",
+      "due": "2026-07-14",
+      "recurrence": null,
+      "stepId": null,
+      "projectId": null,
+      "estMin": 10,
+      "position": 2,
+      "notes": null,
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_email",
+      "title": "Email advisor about the capstone scope",
+      "status": "todo",
+      "due": "2026-07-13",
+      "recurrence": null,
+      "stepId": null,
+      "projectId": null,
+      "estMin": 15,
+      "position": 3,
+      "notes": null,
+      "createdAt": "2026-07-09T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_blog",
+      "title": "Draft blog post: GPIO gotchas",
+      "status": "todo",
+      "due": "2026-07-16",
+      "recurrence": null,
+      "stepId": null,
+      "projectId": "pj_site",
+      "estMin": 45,
+      "position": 4,
+      "notes": null,
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_katakana",
+      "title": "Review the katakana deck",
+      "status": "todo",
+      "due": null,
+      "recurrence": "daily",
+      "stepId": "st_kata",
+      "projectId": null,
+      "estMin": 10,
+      "position": 5,
+      "notes": null,
+      "createdAt": "2026-06-24T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_standup",
+      "title": "Write standup notes",
+      "status": "todo",
+      "due": null,
+      "recurrence": "weekdays",
+      "stepId": null,
+      "projectId": null,
+      "estMin": 5,
+      "position": 6,
+      "notes": null,
+      "createdAt": "2026-06-24T09:00:00.000Z",
+      "doneAt": null
+    },
+    {
+      "id": "tk_readpin",
+      "title": "Skim the RP2040 datasheet intro",
+      "status": "done",
+      "due": null,
+      "recurrence": null,
+      "stepId": "st_spi",
+      "projectId": null,
+      "estMin": 20,
+      "position": 7,
+      "notes": null,
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": "2026-07-14T18:00:00.000Z"
+    },
+    {
+      "id": "tk_refactor",
+      "title": "Refactor the LED blink loop",
+      "status": "done",
+      "due": null,
+      "recurrence": null,
+      "stepId": null,
+      "projectId": "pj_blinky",
+      "estMin": 20,
+      "position": 8,
+      "notes": null,
+      "createdAt": "2026-07-11T09:00:00.000Z",
+      "doneAt": "2026-07-14T18:00:00.000Z"
+    }
+  ],
+  "kata": [
+    {
+      "id": "ka_grey",
+      "title": "Greyscale phone",
+      "note": "colour back on weekends",
+      "builtinId": "greyscale-phone",
+      "active": true,
+      "position": 0,
+      "createdAt": "2026-06-24T09:00:00.000Z"
+    },
+    {
+      "id": "ka_feeds",
+      "title": "No feeds before noon",
+      "note": null,
+      "builtinId": null,
+      "active": true,
+      "position": 1,
+      "createdAt": "2026-06-24T09:00:00.000Z"
+    },
+    {
+      "id": "ka_shutdown",
+      "title": "Evening shutdown ritual",
+      "note": "close the laptop by 22:00",
+      "builtinId": null,
+      "active": true,
+      "position": 2,
+      "createdAt": "2026-06-28T09:00:00.000Z"
+    },
+    {
+      "id": "ka_pages",
+      "title": "Morning pages",
+      "note": null,
+      "builtinId": null,
+      "active": true,
+      "position": 3,
+      "createdAt": "2026-06-28T09:00:00.000Z"
+    }
+  ],
+  "completions": [
+    {
+      "id": "cmp_1",
+      "day": "2026-07-14",
+      "kind": "task",
+      "refId": "tk_readpin",
+      "ts": "2026-07-14T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_2",
+      "day": "2026-07-14",
+      "kind": "task",
+      "refId": "tk_refactor",
+      "ts": "2026-07-14T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_3",
+      "day": "2026-07-14",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-14T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_4",
+      "day": "2026-07-13",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-13T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_5",
+      "day": "2026-07-13",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-13T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_6",
+      "day": "2026-07-13",
+      "kind": "step",
+      "refId": "st_timers",
+      "ts": "2026-07-13T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_7",
+      "day": "2026-07-12",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-12T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_8",
+      "day": "2026-07-12",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-12T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_9",
+      "day": "2026-07-11",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-11T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_10",
+      "day": "2026-07-11",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-11T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_11",
+      "day": "2026-07-11",
+      "kind": "task",
+      "refId": "tk_email",
+      "ts": "2026-07-11T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_12",
+      "day": "2026-07-10",
+      "kind": "step",
+      "refId": "st_borrow",
+      "ts": "2026-07-10T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_13",
+      "day": "2026-07-10",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-10T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_14",
+      "day": "2026-07-10",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-10T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_15",
+      "day": "2026-07-09",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-09T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_16",
+      "day": "2026-07-09",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-09T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_17",
+      "day": "2026-07-08",
+      "kind": "step",
+      "refId": "st_uart",
+      "ts": "2026-07-08T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_18",
+      "day": "2026-07-08",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-08T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_19",
+      "day": "2026-07-07",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-07T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_20",
+      "day": "2026-07-07",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-07T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_21",
+      "day": "2026-07-06",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-06T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_22",
+      "day": "2026-07-06",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-06T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_23",
+      "day": "2026-07-05",
+      "kind": "step",
+      "refId": "st_gpio",
+      "ts": "2026-07-05T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_24",
+      "day": "2026-07-05",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-05T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_25",
+      "day": "2026-07-04",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-04T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_26",
+      "day": "2026-07-04",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-04T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_27",
+      "day": "2026-07-03",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-03T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_28",
+      "day": "2026-07-02",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-02T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_29",
+      "day": "2026-07-02",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-07-02T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_30",
+      "day": "2026-07-01",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-07-01T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_31",
+      "day": "2026-06-30",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-06-30T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_32",
+      "day": "2026-06-30",
+      "kind": "task",
+      "refId": "tk_standup",
+      "ts": "2026-06-30T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_33",
+      "day": "2026-06-29",
+      "kind": "step",
+      "refId": "st_hira",
+      "ts": "2026-06-29T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_34",
+      "day": "2026-06-29",
+      "kind": "task",
+      "refId": "tk_katakana",
+      "ts": "2026-06-29T18:00:00.000Z"
+    },
+    {
+      "id": "cmp_35",
+      "day": "2026-07-14",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-14T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_36",
+      "day": "2026-07-13",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-13T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_37",
+      "day": "2026-07-13",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-13T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_38",
+      "day": "2026-07-13",
+      "kind": "kata",
+      "refId": "ka_shutdown",
+      "ts": "2026-07-13T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_39",
+      "day": "2026-07-13",
+      "kind": "kata",
+      "refId": "ka_pages",
+      "ts": "2026-07-13T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_40",
+      "day": "2026-07-12",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-12T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_41",
+      "day": "2026-07-12",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-12T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_42",
+      "day": "2026-07-12",
+      "kind": "kata",
+      "refId": "ka_shutdown",
+      "ts": "2026-07-12T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_43",
+      "day": "2026-07-12",
+      "kind": "kata",
+      "refId": "ka_pages",
+      "ts": "2026-07-12T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_44",
+      "day": "2026-07-11",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-11T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_45",
+      "day": "2026-07-11",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-11T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_46",
+      "day": "2026-07-11",
+      "kind": "kata",
+      "refId": "ka_shutdown",
+      "ts": "2026-07-11T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_47",
+      "day": "2026-07-11",
+      "kind": "kata",
+      "refId": "ka_pages",
+      "ts": "2026-07-11T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_48",
+      "day": "2026-07-10",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-10T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_49",
+      "day": "2026-07-10",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-10T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_50",
+      "day": "2026-07-09",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-09T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_51",
+      "day": "2026-07-09",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-09T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_52",
+      "day": "2026-07-08",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-08T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_53",
+      "day": "2026-07-08",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-08T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_54",
+      "day": "2026-07-07",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-07T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_55",
+      "day": "2026-07-06",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-06T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_56",
+      "day": "2026-07-06",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-06T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_57",
+      "day": "2026-07-05",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-05T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_58",
+      "day": "2026-07-05",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-05T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_59",
+      "day": "2026-07-04",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-04T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_60",
+      "day": "2026-07-04",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-04T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_61",
+      "day": "2026-07-03",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-03T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_62",
+      "day": "2026-07-03",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-03T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_63",
+      "day": "2026-07-02",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-02T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_64",
+      "day": "2026-07-02",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-07-02T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_65",
+      "day": "2026-07-01",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-07-01T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_66",
+      "day": "2026-06-30",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-06-30T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_67",
+      "day": "2026-06-30",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-06-30T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_68",
+      "day": "2026-06-29",
+      "kind": "kata",
+      "refId": "ka_grey",
+      "ts": "2026-06-29T08:00:00.000Z"
+    },
+    {
+      "id": "cmp_69",
+      "day": "2026-06-29",
+      "kind": "kata",
+      "refId": "ka_feeds",
+      "ts": "2026-06-29T08:00:00.000Z"
+    }
+  ],
+  "kataDays": [
+    {
+      "day": "2026-07-14",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ],
+      "honoredIds": [
+        "ka_grey"
+      ]
+    },
+    {
+      "day": "2026-07-13",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ]
+    },
+    {
+      "day": "2026-07-12",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ]
+    },
+    {
+      "day": "2026-07-11",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds",
+        "ka_shutdown",
+        "ka_pages"
+      ]
+    },
+    {
+      "day": "2026-07-10",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-09",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-08",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-07",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey"
+      ]
+    },
+    {
+      "day": "2026-07-06",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-05",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-04",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-03",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-02",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-07-01",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey"
+      ]
+    },
+    {
+      "day": "2026-06-30",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    },
+    {
+      "day": "2026-06-29",
+      "activeIds": [
+        "ka_grey",
+        "ka_feeds"
+      ],
+      "honoredIds": [
+        "ka_grey",
+        "ka_feeds"
+      ]
+    }
+  ]
+}

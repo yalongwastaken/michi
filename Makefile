@@ -2,7 +2,7 @@
 # Requires Node >= 22.12 and npm. Run `make` or `make help` for the list.
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev server client build start test test-server test-client test-smoke format lint clean distclean backup
+.PHONY: help install dev server client build start test test-server test-client test-smoke format lint clean distclean backup sample seed
 
 ## help: list the available targets
 help:
@@ -68,6 +68,15 @@ backup:
 	node --experimental-sqlite server/backup.js backups/michi-$$(date +%F).db
 	@ls -1t backups/michi-*.db 2>/dev/null | tail -n +15 | xargs -r rm -f
 	@echo "backed up → backups/michi-$$(date +%F).db (keeping the 14 most recent)"
+
+## sample: regenerate samples/sample-profile.json (import it via Settings → Import)
+sample:
+	node server/scripts/seed-sample.js
+	@echo "→ samples/sample-profile.json — import it from Settings → Import (or on your phone)"
+
+## seed: RESET the database and load the sample profile (destroys existing data)
+seed:
+	node --experimental-sqlite server/scripts/seed-sample.js --db
 
 ## clean: remove build output and temp files (keeps node_modules + data)
 clean:
