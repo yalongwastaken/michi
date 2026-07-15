@@ -5,6 +5,7 @@ import {
   Map,
   TrendingUp,
   Flame,
+  Plus,
   Settings as SettingsIcon,
   AlertTriangle,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import Today from "./views/Today.jsx";
 import Plan from "./views/Plan.jsx";
 import Progression from "./views/Progression.jsx";
 import Settings from "./views/Settings.jsx";
+import QuickAdd from "./views/QuickAdd.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Celebration from "./views/Celebration.jsx";
 import UndoToast from "./views/UndoToast.jsx";
@@ -113,6 +115,7 @@ export default function App({ onTheme }) {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [tab, setTab] = useState("home");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [celebration, setCelebration] = useState(null);
@@ -635,6 +638,18 @@ export default function App({ onTheme }) {
           })}
         </div>
       </nav>
+
+      {/* always-available fast add — one tap from any tab (mirrors Tsumiki's FAB),
+          tucked above the bottom nav and its safe-area inset */}
+      <button
+        aria-label="Quick add a task"
+        onClick={() => setQuickAddOpen(true)}
+        style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
+        className="fixed right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-trail-600 text-white shadow-lg transition hover:bg-trail-700 active:scale-95"
+      >
+        <Plus size={26} strokeWidth={2.5} />
+      </button>
+      {quickAddOpen && <QuickAdd ctx={ctx} onClose={() => setQuickAddOpen(false)} />}
 
       {settingsOpen && <Settings ctx={ctx} onClose={() => setSettingsOpen(false)} />}
       {celebration ? (

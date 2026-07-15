@@ -19,6 +19,7 @@ import {
   Footprints,
   ListTodo,
   StickyNote,
+  ExternalLink,
 } from "lucide-react";
 import { Card, Button, Input, Badge, IconButton } from "../ui.jsx";
 import { dueLabel, minutes } from "../lib/format.js";
@@ -30,6 +31,7 @@ import Dojo from "./Dojo.jsx";
 import Mascot from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
 import PlanWithClaude from "./PlanWithClaude.jsx";
+import SwipeRow from "./SwipeRow.jsx";
 
 // chips that explain why an item is in today's plan
 const REASON = {
@@ -150,93 +152,107 @@ function Row({ item, note, onToggle, onEdit, onSkip, showReason }) {
             : item.reason
       ]
     : null;
+  const complete = () => onToggle(item.kind, item.id, !done);
+  const context = onEdit && !isStep ? () => onEdit(item) : undefined;
+
   return (
-    <div className="group flex items-start gap-3 px-4 py-3">
-      {/* no busy gate: completions are optimistic and the write queue serializes,
-          so ticking through the plan shouldn't be tap-wait-tap-wait */}
-      <button
-        onClick={() => onToggle(item.kind, item.id, !done)}
-        aria-label={done ? "Mark not done" : "Mark done"}
-        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition ${
-          done
-            ? "border-trail-500 bg-trail-500 text-white pop"
-            : "border-slate-300 text-transparent hover:border-trail-400 dark:border-slate-600"
-        }`}
-      >
-        <Check size={14} strokeWidth={3} />
-      </button>
-      <div className="min-w-0 flex-1">
-        <p
-          className={`text-sm font-medium ${
-            done ? "text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"
-          }`}
+    // short swipe → context (edit), full fast swipe → complete. Disabled once done.
+    <SwipeRow onComplete={done ? undefined : complete} onContext={context} disabled={done}>
+      {/* opaque bg so the swipe reveal only shows in the gap the row leaves behind */}
+      <div className="group flex items-stretch bg-white dark:bg-slate-900">
+        {/* the whole left region is the complete target — a big, forgiving tap
+            (no busy gate: completions are optimistic and the write queue serializes) */}
+        <button
+          onClick={complete}
+          aria-label={done ? "Mark not done" : "Mark done"}
+          className="flex min-h-[56px] min-w-0 flex-1 items-start gap-3 py-3 pl-4 pr-2 text-left"
         >
-          {item.title}
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-          {isStep ? (
-            <span className="inline-flex items-center gap-1">
-              <BookOpen size={12} />
-              {item.roadmapTitle}
-              {item.milestoneTitle ? ` · ${item.milestoneTitle}` : ""}
+          <span
+            aria-hidden="true"
+            className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition ${
+              done
+                ? "border-trail-500 bg-trail-500 text-white pop"
+                : "border-slate-300 text-transparent group-hover:border-trail-400 dark:border-slate-600"
+            }`}
+          >
+            <Check size={14} strokeWidth={3} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span
+              className={`block text-sm font-medium ${
+                done ? "text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"
+              }`}
+            >
+              {item.title}
             </span>
-          ) : null}
+            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {isStep ? (
+                <span className="inline-flex items-center gap-1">
+                  <BookOpen size={12} />
+                  {item.roadmapTitle}
+                  {item.milestoneTitle ? ` · ${item.milestoneTitle}` : ""}
+                </span>
+              ) : null}
+              {item.due ? (
+                <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800">
+                  {dueLabel(item.due)}
+                </Badge>
+              ) : null}
+              {item.recurrence ? (
+                <Badge className="bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300">
+                  <Repeat size={11} /> {item.recurrence}
+                </Badge>
+              ) : null}
+              {minutes(item.estMin) ? (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} /> {minutes(item.estMin)}
+                </span>
+              ) : null}
+              {reason ? <Badge className={reason.cls}>{reason.label}</Badge> : null}
+            </span>
+          </span>
+        </button>
+
+        {/* interactive extras live OUTSIDE the complete button (no nested buttons) */}
+        <div className="flex shrink-0 items-center pr-1">
           {item.resourceUrl ? (
-            <a
-              href={item.resourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-trail-700 hover:underline dark:text-trail-400"
+            <IconButton
+              label="Open resource"
+              className="h-9 w-9"
+              onClick={() => window.open(item.resourceUrl, "_blank", "noopener")}
             >
-              open resource
-            </a>
+              <ExternalLink size={15} />
+            </IconButton>
           ) : null}
-          {item.due ? (
-            <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800">
-              {dueLabel(item.due)}
-            </Badge>
-          ) : null}
-          {item.recurrence ? (
-            <Badge className="bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300">
-              <Repeat size={11} /> {item.recurrence}
-            </Badge>
-          ) : null}
-          {minutes(item.estMin) ? (
-            <span className="inline-flex items-center gap-1">
-              <Clock size={11} /> {minutes(item.estMin)}
-            </span>
-          ) : null}
-          {reason ? <Badge className={reason.cls}>{reason.label}</Badge> : null}
           {note ? (
-            <button
-              onClick={() => setNoteOpen((v) => !v)}
-              aria-label={noteOpen ? "Hide note" : "Show note"}
+            <IconButton
+              label={noteOpen ? "Hide note" : "Show note"}
               aria-expanded={noteOpen}
-              className="inline-flex items-center p-0.5 text-iris-500 transition hover:text-iris-600 dark:text-iris-300 dark:hover:text-iris-200"
+              className="h-9 w-9 text-iris-500 dark:text-iris-300"
+              onClick={() => setNoteOpen((v) => !v)}
             >
-              <StickyNote size={12} />
-            </button>
+              <StickyNote size={15} />
+            </IconButton>
+          ) : null}
+          {onSkip ? (
+            <IconButton label="Not today" className="h-9 w-9" onClick={() => onSkip(item)}>
+              <CalendarClock size={15} />
+            </IconButton>
+          ) : null}
+          {context ? (
+            <IconButton label="Edit task" className="h-9 w-9" onClick={context}>
+              <Pencil size={15} />
+            </IconButton>
           ) : null}
         </div>
-        {note && noteOpen ? (
-          <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-            {note}
-          </p>
-        ) : null}
       </div>
-      <div className="flex shrink-0 items-center">
-        {onSkip ? (
-          <IconButton label="Not today" className="h-9 w-9" onClick={() => onSkip(item)}>
-            <CalendarClock size={15} />
-          </IconButton>
-        ) : null}
-        {onEdit && !isStep ? (
-          <IconButton label="Edit task" className="h-9 w-9" onClick={() => onEdit(item)}>
-            <Pencil size={15} />
-          </IconButton>
-        ) : null}
-      </div>
-    </div>
+
+      {note && noteOpen ? (
+        <p className="whitespace-pre-wrap bg-white px-4 pb-3 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          {note}
+        </p>
+      ) : null}
+    </SwipeRow>
   );
 }
 

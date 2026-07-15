@@ -1,5 +1,5 @@
 // ui.jsx — small shared presentational primitives, so the views stay readable.
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
 // a run of Japanese script — CJK punctuation + kana (U+3000–30FF) and the
@@ -174,9 +174,9 @@ export function Field({ label, children, hint }) {
 const INPUT =
   "w-full rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:border-trail-400 focus:outline-none focus:ring-2 focus:ring-trail-200 dark:focus:ring-trail-800";
 
-export function Input(props) {
-  return <input className={INPUT} {...props} />;
-}
+export const Input = forwardRef(function Input(props, ref) {
+  return <input ref={ref} className={INPUT} {...props} />;
+});
 export function Select({ children, ...props }) {
   return (
     <select className={INPUT} {...props}>
