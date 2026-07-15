@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Copy, Check, AlertTriangle } from "lucide-react";
+import { Copy, Check, AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "../ui.jsx";
 import { api } from "../lib/api.js";
 
@@ -41,7 +41,7 @@ function countsLabel(obj, pick = (v) => v) {
  * whole app adopts the new state.
  */
 export default function PlanWithClaude({ ctx }) {
-  const { refresh } = ctx;
+  const { refresh, aiEnabled } = ctx;
   const [md, setMd] = useState("");
   const [preview, setPreview] = useState(null);
   const [synced, setSynced] = useState(null);
@@ -49,6 +49,11 @@ export default function PlanWithClaude({ ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const guard = useRef(false); // blocks a double tap from previewing/applying twice
+
+  // draft-from-source (local model): paste raw notes, let MICHI_LLM structure them
+  const [source, setSource] = useState("");
+  const [mode, setMode] = useState("roadmap");
+  const [drafting, setDrafting] = useState(false);
 
   const copyExport = async () => {
     if (guard.current) {
@@ -66,14 +71,17 @@ export default function PlanWithClaude({ ctx }) {
     guard.current = false;
   };
 
-  const previewSync = async () => {
-    if (guard.current || !md.trim()) {
+  // mdArg lets the draft step preview its result without waiting on state to settle;
+  // an onClick passes an event, so only a real string overrides md
+  const previewSync = async (mdArg) => {
+    const text = typeof mdArg === "string" ? mdArg : md;
+    if (guard.current || !text.trim()) {
       return;
     }
     guard.current = true;
     setBusy(true);
     try {
-      setPreview(await api.syncPreview(md));
+      setPreview(await api.syncPreview(text));
       setSynced(null);
       setErr(null);
     } catch (e) {
@@ -82,6 +90,25 @@ export default function PlanWithClaude({ ctx }) {
     }
     guard.current = false;
     setBusy(false);
+  };
+
+  // hand the pasted source to the local model, drop its draft into the editor, and
+  // preview it right away so the diff is one glance from Apply
+  const draft = async () => {
+    if (drafting || !source.trim()) {
+      return;
+    }
+    setDrafting(true);
+    setErr(null);
+    try {
+      const { markdown } = await api.aiDraft(source, mode);
+      setMd(markdown);
+      setSynced(null);
+      await previewSync(markdown);
+    } catch (e) {
+      setErr(e.message || "the local model couldn't draft that");
+    }
+    setDrafting(false);
   };
 
   const applySyncNow = async () => {
@@ -112,6 +139,61 @@ export default function PlanWithClaude({ ctx }) {
 
   return (
     <div>
+      {aiEnabled ? (
+        <div className="mb-3 rounded-xl border border-iris-200/70 bg-iris-50/60 p-3 dark:border-iris-900/50 dark:bg-iris-950/30">
+          <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <Sparkles size={15} className="text-iris-500 dark:text-iris-300" /> Draft from notes
+          </p>
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            Paste a syllabus, an article, or a brain dump — your local model turns it into a roadmap
+            or tasks. You review the diff before anything saves.
+          </p>
+          <textarea
+            rows={4}
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            placeholder="Paste anything to turn into a plan…"
+            aria-label="Source notes to draft from"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-iris-400 focus:outline-none focus:ring-2 focus:ring-iris-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-iris-800"
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <div
+              role="radiogroup"
+              aria-label="What to draft"
+              className="flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+            >
+              {[
+                ["roadmap", "Roadmap"],
+                ["tasks", "Tasks"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === id}
+                  onClick={() => setMode(id)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    mode === id
+                      ? "bg-white text-iris-600 shadow-sm dark:bg-slate-900 dark:text-iris-300"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="subtle"
+              onClick={draft}
+              disabled={drafting || !source.trim()}
+              className="ml-auto"
+            >
+              <Sparkles size={14} /> {drafting ? "Drafting…" : "Draft with your model"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-3">
         <Button variant="ghost" onClick={copyExport} className="flex-1">
           {copied ? (

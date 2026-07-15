@@ -107,4 +107,7 @@ export const api = {
     req("/api/sync/preview", { method: "POST", body: JSON.stringify({ markdown }) }),
   syncApply: (markdown) =>
     req("/api/sync/apply", { method: "POST", body: JSON.stringify({ markdown }) }),
+  // draft sync markdown from pasted raw content using the local model (MICHI_LLM)
+  aiDraft: (text, mode) =>
+    req("/api/ai/draft", { method: "POST", body: JSON.stringify({ text, mode }) }),
 };

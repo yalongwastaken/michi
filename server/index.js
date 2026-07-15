@@ -31,7 +31,8 @@ import { planDay } from "./planner.js";
 import { insights, kataSuggestions } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
-import { aiConfig, refinePlan } from "./suggest.js";
+import { aiConfig, aiEnabled, refinePlan } from "./suggest.js";
+import { draftStructured, normalizeMode } from "./draft.js";
 import { listBackups, runBackup, backupDir } from "./backup.js";
 import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
 
@@ -457,6 +458,34 @@ app.post("/api/sync/apply", (req, res) => {
   } catch (e) {
     console.warn("POST /api/sync/apply failed:", e.message);
     res.status(400).json({ error: e.message || "sync failed" });
+  }
+});
+
+// POST /api/ai/draft — turn pasted raw content into sync markdown with the local
+// model. Returns markdown only; the client runs it through /api/sync/preview +
+// /api/sync/apply, so the same validation + human approval as a pasted reply apply.
+app.post("/api/ai/draft", async (req, res) => {
+  if (!aiEnabled()) {
+    return res.status(503).json({ error: "the local model is off — set MICHI_LLM=1 to enable it" });
+  }
+  const text = req.body?.text;
+  if (typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "paste some text to draft from" });
+  }
+  if (text.length > 20000) {
+    return res.status(413).json({ error: "that's a lot of text — trim it under ~20k characters" });
+  }
+  try {
+    const markdown = await draftStructured(text, normalizeMode(req.body?.mode), {
+      today: dayKey(),
+    });
+    if (!markdown) {
+      return res.status(502).json({ error: "the model didn't return a usable draft — try again" });
+    }
+    res.json({ markdown });
+  } catch (e) {
+    console.warn("POST /api/ai/draft failed:", e.message);
+    res.status(502).json({ error: "could not reach the local model" });
   }
 });
 
