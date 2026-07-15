@@ -23,6 +23,10 @@ import {
   getKata,
   getKataToday,
   setKataHonored,
+  getJournalRange,
+  addJournalEntry,
+  updateJournalEntry,
+  deleteJournalEntry,
   ConflictError,
 } from "./db.js";
 import { buildToday, momentum } from "./engine.js";
@@ -487,6 +491,82 @@ app.post("/api/ai/draft", async (req, res) => {
     console.warn("POST /api/ai/draft failed:", e.message);
     res.status(502).json({ error: "could not reach the local model" });
   }
+});
+
+// ── journal / time log ──────────────────────────────────────────────────────
+// Validate a create/update body. `partial` (PATCH) lets fields be absent.
+function validateJournalInput(b, { partial = false } = {}) {
+  if (!b || typeof b !== "object") {
+    return "body must be an object";
+  }
+  if (!partial || b.title !== undefined) {
+    if (typeof b.title !== "string" || !b.title.trim()) {
+      return "title is required";
+    }
+  }
+  for (const f of ["startMin", "endMin"]) {
+    const v = b[f];
+    if (v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 1440)) {
+      return `${f} must be minutes between 0 and 1440`;
+    }
+  }
+  if (b.startMin != null && b.endMin != null && Number(b.endMin) < Number(b.startMin)) {
+    return "end must be at or after start";
+  }
+  return null;
+}
+
+// GET /api/journal?from=YYYY-MM-DD&to=YYYY-MM-DD — entries in range (default: the
+// month around today, so the calendar has something to render on first open)
+app.get("/api/journal", (req, res) => {
+  const today = dayKey();
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || "")
+    ? req.query.from
+    : `${today.slice(0, 7)}-01`;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || "")
+    ? req.query.to
+    : `${today.slice(0, 7)}-31`;
+  res.json({ entries: getJournalRange(from, to) });
+});
+
+app.post("/api/journal", (req, res) => {
+  const b = req.body || {};
+  const bad = validateJournalInput(b);
+  if (bad) {
+    return res.status(400).json({ error: bad });
+  }
+  const day = resolveDay(b.day); // a bad/absent day falls back to server-local today
+  try {
+    res.json({ entry: addJournalEntry({ ...b, day }) });
+  } catch (e) {
+    console.warn("POST /api/journal failed:", e.message);
+    res.status(400).json({ error: "could not save that log entry" });
+  }
+});
+
+app.patch("/api/journal/:id", (req, res) => {
+  const b = req.body || {};
+  const bad = validateJournalInput(b, { partial: true });
+  if (bad) {
+    return res.status(400).json({ error: bad });
+  }
+  if (b.day !== undefined && b.day !== resolveDay(b.day)) {
+    return res.status(400).json({ error: "day must be a valid date" });
+  }
+  try {
+    const entry = updateJournalEntry(req.params.id, b);
+    if (!entry) {
+      return res.status(404).json({ error: "no such entry" });
+    }
+    res.json({ entry });
+  } catch (e) {
+    console.warn("PATCH /api/journal failed:", e.message);
+    res.status(400).json({ error: "could not update that entry" });
+  }
+});
+
+app.delete("/api/journal/:id", (req, res) => {
+  res.json({ ok: deleteJournalEntry(req.params.id) });
 });
 
 // unknown API paths get a clean 404 (not the SPA shell)

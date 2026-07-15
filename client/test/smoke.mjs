@@ -295,6 +295,8 @@ globalThis.fetch = async (url, opts = {}) => {
     body = DASH.momentum;
   } else if (u.includes("/api/today")) {
     body = DASH.today;
+  } else if (u.includes("/api/journal")) {
+    body = { entries: [] };
   }
   return { ok: true, status: 200, json: async () => body, text: async () => "" };
 };
@@ -339,7 +341,7 @@ const navTo = async (label) => {
   return clickIn(nav, (x) => x.textContent.includes(label));
 };
 
-for (const name of ["Home", "Today", "Plan", "Progression"]) {
+for (const name of ["Home", "Today", "Plan", "Journal", "Progress"]) {
   try {
     if (!(await navTo(name))) {
       fails.push(`${name}: no nav button`);
@@ -356,10 +358,10 @@ for (const name of ["Home", "Today", "Plan", "Progression"]) {
   }
 }
 
-// the discipline card on Progression: grade glyph + romaji title, the clean-day
+// the discipline card on Progress: grade glyph + romaji title, the clean-day
 // caption, and seven week dots each carrying an accessible "{day}: {state}"
 try {
-  await navTo("Progression");
+  await navTo("Progress");
   const main = document.querySelector("main");
   const txt = main?.textContent || "";
   if (!txt.includes("7級") || !txt.includes("7th kyū")) {

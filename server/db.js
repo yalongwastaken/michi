@@ -127,6 +127,25 @@ db.exec(`
     honored_ids TEXT NOT NULL                     -- JSON array of kata ids
   );
 
+  -- the daily journal / time log: what actually happened. One row per logged
+  -- entry, bucketed by local day, optionally with a start/end (minutes from
+  -- midnight) so it can render on a Google-Calendar-style timeline. Untimed
+  -- entries (start/end null) are "did this" notes. Links to a project/step are
+  -- soft (no FK) — the log of what you did outlives the thing it referenced.
+  -- History like completions: exported/imported for backup, never in the PUT.
+  CREATE TABLE IF NOT EXISTS journal (
+    id         TEXT PRIMARY KEY,                 -- jr_-prefixed uid
+    day        TEXT NOT NULL,                    -- local YYYY-MM-DD
+    start_min  INTEGER,                          -- minutes from midnight (0..1439), null = untimed
+    end_min    INTEGER,                          -- minutes from midnight, null = untimed/open
+    title      TEXT NOT NULL,
+    note       TEXT,
+    project_id TEXT,                             -- optional soft link
+    step_id    TEXT,                             -- optional soft link
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_journal_day ON journal(day);
+
   -- flexible JSON blobs for the evolving profile + settings + rev
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -296,6 +315,7 @@ export function validateState(s) {
     "kata",
     "completions",
     "kataDays",
+    "journal",
   ]) {
     if (s[k] != null && !Array.isArray(s[k])) {
       return `${k} must be an array`;
@@ -379,6 +399,28 @@ export function validateState(s) {
     }
     if (!Array.isArray(kd.activeIds) || !Array.isArray(kd.honoredIds)) {
       return "kataDays rows need activeIds and honoredIds arrays";
+    }
+  }
+  // journal rows arrive via import/backup — validate just enough to keep the
+  // timeline math sane (a valid day, a title, minute fields in range and ordered)
+  for (const e of s.journal || []) {
+    if (!e || typeof e !== "object") {
+      return "journal rows must be objects";
+    }
+    if (!isValidDay(e.day)) {
+      return "journal rows need a valid day (YYYY-MM-DD)";
+    }
+    if (!e.title || !String(e.title).trim()) {
+      return "journal rows need a title";
+    }
+    for (const f of ["startMin", "endMin"]) {
+      const v = e[f];
+      if (v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 1440)) {
+        return `journal.${f} must be minutes between 0 and 1440`;
+      }
+    }
+    if (e.startMin != null && e.endMin != null && Number(e.endMin) < Number(e.startMin)) {
+      return "journal end must be at or after start";
     }
   }
   // duplicate ids / dangling references would only surface as generic SQL errors
@@ -575,6 +617,107 @@ function getKataDays() {
     }));
 }
 
+// ── journal / time log ──────────────────────────────────────────────────────────
+const INS_JOURNAL =
+  "INSERT INTO journal(id,day,start_min,end_min,title,note,project_id,step_id,created_at) " +
+  "VALUES(@id,@day,@start_min,@end_min,@title,@note,@project_id,@step_id,@created_at)";
+const journalRow = (r) =>
+  r && {
+    id: r.id,
+    day: r.day,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    title: r.title,
+    note: r.note,
+    projectId: r.project_id,
+    stepId: r.step_id,
+    createdAt: r.created_at,
+  };
+// order for a timeline: by day, then timed-before-untimed, then start, then insert
+const JOURNAL_ORDER = "ORDER BY day, start_min IS NULL, start_min, created_at";
+const asMin = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+
+/** Journal entries within [from, to] (inclusive), ordered for a timeline. */
+export function getJournalRange(from, to) {
+  return db
+    .prepare(`SELECT * FROM journal WHERE day >= ? AND day <= ? ${JOURNAL_ORDER}`)
+    .all(from, to)
+    .map(journalRow);
+}
+
+/** The whole journal, oldest first — for export/backup only (grows over time). */
+function getJournal() {
+  return db.prepare(`SELECT * FROM journal ${JOURNAL_ORDER}`).all().map(journalRow);
+}
+
+/** Insert a journal entry; returns the stored row. */
+export function addJournalEntry(e) {
+  const row = {
+    id: uid("jr"),
+    day: e.day,
+    start_min: asMin(e.startMin),
+    end_min: asMin(e.endMin),
+    title: String(e.title).trim(),
+    note: e.note ?? null,
+    project_id: e.projectId ?? null,
+    step_id: e.stepId ?? null,
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(INS_JOURNAL).run(row);
+  return journalRow(db.prepare("SELECT * FROM journal WHERE id = ?").get(row.id));
+}
+
+/** Patch an entry (only provided fields). Returns the updated row, or null if gone. */
+export function updateJournalEntry(id, patch = {}) {
+  const cur = db.prepare("SELECT * FROM journal WHERE id = ?").get(id);
+  if (!cur) {
+    return null;
+  }
+  const next = {
+    id,
+    day: patch.day ?? cur.day,
+    start_min: patch.startMin !== undefined ? asMin(patch.startMin) : cur.start_min,
+    end_min: patch.endMin !== undefined ? asMin(patch.endMin) : cur.end_min,
+    title: patch.title !== undefined ? String(patch.title).trim() : cur.title,
+    note: patch.note !== undefined ? patch.note : cur.note,
+    project_id: patch.projectId !== undefined ? patch.projectId : cur.project_id,
+    step_id: patch.stepId !== undefined ? patch.stepId : cur.step_id,
+  };
+  db.prepare(
+    "UPDATE journal SET day=@day,start_min=@start_min,end_min=@end_min,title=@title," +
+      "note=@note,project_id=@project_id,step_id=@step_id WHERE id=@id",
+  ).run(next);
+  return journalRow(db.prepare("SELECT * FROM journal WHERE id = ?").get(id));
+}
+
+/** Delete an entry; true if a row was removed. */
+export function deleteJournalEntry(id) {
+  return db.prepare("DELETE FROM journal WHERE id = ?").run(id).changes > 0;
+}
+
+// import/backup: replace the whole journal (skips malformed rows, like completions)
+function writeJournalRows(rows = []) {
+  db.prepare("DELETE FROM journal").run();
+  const ins = db.prepare(INS_JOURNAL.replace("INSERT INTO", "INSERT OR IGNORE INTO"));
+  for (const e of rows) {
+    if (!e || !isValidDay(e.day) || !e.title || !String(e.title).trim()) {
+      continue;
+    }
+    ins.run({
+      id: typeof e.id === "string" && e.id ? e.id : uid("jr"),
+      day: e.day,
+      start_min: asMin(e.startMin),
+      end_min: asMin(e.endMin),
+      title: String(e.title).trim(),
+      note: e.note ?? null,
+      project_id: e.projectId ?? null,
+      step_id: e.stepId ?? null,
+      created_at:
+        typeof e.createdAt === "string" && e.createdAt ? e.createdAt : new Date().toISOString(),
+    });
+  }
+}
+
 // ── in-memory activity summary (what momentum reads instead of the raw log) ─────
 // The completions log is unbounded and append-only, and every dashboard request
 // used to re-aggregate all of it. Keep a small day→{tasks,steps} counter map (plus
@@ -642,7 +785,12 @@ function dropActivityCache() {
  * carried it would "restore" old deletions into a dataset that moved on.
  */
 export function getFullState() {
-  return { ...getState(), completions: getCompletions(), kataDays: getKataDays() };
+  return {
+    ...getState(),
+    completions: getCompletions(),
+    kataDays: getKataDays(),
+    journal: getJournal(),
+  };
 }
 
 // ── lean writes (the common daily interactions — no full-state PUT) ─────────────
@@ -1411,6 +1559,7 @@ export function resetAll() {
       "kata",
       "kata_days",
       "completions",
+      "journal",
       "trash",
     ]) {
       db.prepare(`DELETE FROM ${t}`).run();
@@ -1502,6 +1651,7 @@ export function importAll(state) {
     replaceAll(state);
     writeCompletionRows(state.completions || []);
     writeKataDayRows(state.kataDays || []); // honor history restores with the backup
+    writeJournalRows(state.journal || []); // the time log restores with the backup too
     bumpRev();
     db.exec("COMMIT");
   } catch (e) {

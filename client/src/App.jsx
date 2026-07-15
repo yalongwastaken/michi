@@ -3,6 +3,7 @@ import {
   Home as HomeIcon,
   Sun,
   Map,
+  CalendarDays,
   TrendingUp,
   Flame,
   Plus,
@@ -15,6 +16,7 @@ import { createQueue } from "./lib/queue.js";
 import Home from "./views/Home.jsx";
 import Today from "./views/Today.jsx";
 import Plan from "./views/Plan.jsx";
+import Journal from "./views/Journal.jsx";
 import Progression from "./views/Progression.jsx";
 import Settings from "./views/Settings.jsx";
 import QuickAdd from "./views/QuickAdd.jsx";
@@ -29,7 +31,8 @@ const TABS = [
   { id: "home", label: "Home", icon: HomeIcon },
   { id: "today", label: "Today", icon: Sun },
   { id: "plan", label: "Plan", icon: Map },
-  { id: "progression", label: "Progression", icon: TrendingUp },
+  { id: "journal", label: "Journal", icon: CalendarDays },
+  { id: "progression", label: "Progress", icon: TrendingUp },
 ];
 
 // optimistic helpers: flip an item's status locally so the checkbox responds instantly,
@@ -600,6 +603,7 @@ export default function App({ onTheme }) {
         {tab === "home" && <Home ctx={ctx} />}
         {tab === "today" && <Today ctx={ctx} />}
         {tab === "plan" && <Plan ctx={ctx} />}
+        {tab === "journal" && <Journal ctx={ctx} />}
         {tab === "progression" && <Progression ctx={ctx} />}
       </main>
 

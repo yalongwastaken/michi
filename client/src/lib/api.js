@@ -110,4 +110,16 @@ export const api = {
   // draft sync markdown from pasted raw content using the local model (MICHI_LLM)
   aiDraft: (text, mode) =>
     req("/api/ai/draft", { method: "POST", body: JSON.stringify({ text, mode }) }),
+  // daily journal / time log
+  journal: {
+    list: (from, to) =>
+      req(`/api/journal?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    add: (entry) => req("/api/journal", { method: "POST", body: JSON.stringify(entry) }),
+    update: (id, patch) =>
+      req(`/api/journal/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    remove: (id) => req(`/api/journal/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  },
 };
