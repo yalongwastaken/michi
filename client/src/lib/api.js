@@ -107,9 +107,6 @@ export const api = {
     req("/api/sync/preview", { method: "POST", body: JSON.stringify({ markdown }) }),
   syncApply: (markdown) =>
     req("/api/sync/apply", { method: "POST", body: JSON.stringify({ markdown }) }),
-  // draft sync markdown from pasted raw content using the local model (MICHI_LLM)
-  aiDraft: (text, mode) =>
-    req("/api/ai/draft", { method: "POST", body: JSON.stringify({ text, mode }) }),
   // daily journal / time log
   journal: {
     list: (from, to) =>
@@ -121,5 +118,20 @@ export const api = {
         body: JSON.stringify(patch),
       }),
     remove: (id) => req(`/api/journal/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  },
+  // web push (Focus-tab reminders) — the VAPID key, plus per-device sub/unsub
+  push: {
+    key: () => req("/api/push/key"),
+    subscribe: (sub) => req("/api/push/subscribe", { method: "POST", body: JSON.stringify(sub) }),
+    unsubscribe: (endpoint) =>
+      req("/api/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) }),
+  },
+  // focus (Pomodoro): schedule/cancel the end-of-block push, and get a goal suggestion
+  focus: {
+    schedule: (reminder) =>
+      req("/api/focus/schedule", { method: "POST", body: JSON.stringify(reminder) }),
+    cancel: (id) => req("/api/focus/cancel", { method: "POST", body: JSON.stringify({ id }) }),
+    suggest: (targets) =>
+      req("/api/focus/suggest", { method: "POST", body: JSON.stringify({ targets }) }),
   },
 };

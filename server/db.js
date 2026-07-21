@@ -250,8 +250,6 @@ const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
 const COMPLETION_KINDS = new Set(["task", "step", "kata"]);
-// a dōjō, not a checklist: more than this many active kata stops being practice
-const MAX_ACTIVE_KATA = 5;
 
 // sane bounds for the numeric settings — a huge/Infinity streakFreezes would make
 // computeStreak() walk back day-by-day (nearly) forever and wedge the event loop
@@ -284,6 +282,30 @@ function setMeta(key, obj) {
   db.prepare(
     "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   ).run(key, JSON.stringify(obj));
+}
+
+// ── web-push + focus reminders (opt-in notifications; see focus.js) ─────────────
+// All live in the meta table as JSON. They're device registrations / ephemeral
+// timers, not model data, so resetAll() deliberately leaves them alone (it only
+// clears profile/settings/planSkips) — unsubscribing a device is the way to clear.
+export function getVapid() {
+  return getMeta("vapid", null);
+}
+export function setVapid(keys) {
+  setMeta("vapid", keys);
+}
+export function getPushSubs() {
+  return getMeta("pushSubs", []);
+}
+export function setPushSubs(subs) {
+  setMeta("pushSubs", subs);
+}
+/** Pending focus-block reminders: [{ id, dueAt(ms), title, body }]. */
+export function getFocusReminders() {
+  return getMeta("focusReminders", []);
+}
+export function setFocusReminders(list) {
+  setMeta("focusReminders", list);
 }
 
 // ── optimistic-concurrency rev (guards two tabs clobbering each other) ──────────
@@ -368,7 +390,6 @@ export function validateState(s) {
       return bad;
     }
   }
-  let activeKata = 0;
   for (const k of s.kata || []) {
     if (!k?.id) {
       return "kata needs an id";
@@ -381,12 +402,6 @@ export function validateState(s) {
     if (k.active != null && typeof k.active !== "boolean" && k.active !== 0 && k.active !== 1) {
       return "kata.active must be a boolean";
     }
-    if (k.active !== false && k.active !== 0) {
-      activeKata += 1; // absent → the schema default (active)
-    }
-  }
-  if (activeKata > MAX_ACTIVE_KATA) {
-    return `at most ${MAX_ACTIVE_KATA} kata can be active — retire one before adding another`;
   }
   // kata_days rows only arrive via import — validate just enough that the
   // clean-day math can't be poisoned (a garbage day, non-array id lists)
@@ -1426,14 +1441,9 @@ export function restoreTrash(id) {
       );
     }
     if (kata) {
-      // a restore must not smuggle the dōjō past its ≤5-active limit (the next
-      // full-state PUT would fail validation and strand the client) — when the
-      // active set is already full, the kata comes back retired instead
+      // no active-count cap anymore — a restored kata simply comes back in the
+      // state it was trashed in
       const wantsActive = kata.active !== false && kata.active !== 0;
-      const fullHouse =
-        wantsActive &&
-        Number(db.prepare("SELECT COUNT(*) AS n FROM kata WHERE active = 1").get().n) >=
-          MAX_ACTIVE_KATA;
       db.prepare(
         "INSERT INTO kata(id,title,note,builtin_id,active,position,created_at) VALUES(?,?,?,?,?,?,?)",
       ).run(
@@ -1441,7 +1451,7 @@ export function restoreTrash(id) {
         kata.title,
         kata.note ?? null,
         kata.builtinId ?? null,
-        wantsActive && !fullHouse ? 1 : 0,
+        wantsActive ? 1 : 0,
         kata.position ?? 0,
         kata.createdAt ?? nowIso,
       );

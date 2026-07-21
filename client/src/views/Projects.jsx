@@ -30,6 +30,7 @@ import { shortDate } from "../lib/format.js";
 import { roadmapTree, reorder, nextPosition } from "../lib/tree.js";
 import { deleteProject } from "../lib/mutate.js";
 import { focusMainHeading } from "../lib/a11y.js";
+import PlanWithClaude from "./PlanWithClaude.jsx";
 
 const FLOW = ["idea", "active", "shipped"];
 const META = {
@@ -142,6 +143,10 @@ function ProjectModal({ ctx, project = null, onClose }) {
   const [status, setStatus] = useState(project?.status || "idea");
   const [roadmapId, setRoadmapId] = useState(project?.roadmapId || "");
   const roadmaps = state.roadmaps || [];
+  // creating only: "manual" fills the form, "claude" swaps it for the plan-with-Claude
+  // flow so there's no manual clutter. Editing is always the manual form.
+  const [mode, setMode] = useState("manual");
+  const claudeMode = !editing && mode === "claude";
 
   const submitting = useRef(false); // Enter + click (or two quick Enters) → one commit
   const commit = async () => {
@@ -185,60 +190,102 @@ function ProjectModal({ ctx, project = null, onClose }) {
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={commit} disabled={busy || !title.trim()}>
-            {editing ? "Save" : "Create"}
-          </Button>
+          {claudeMode ? null : (
+            <Button onClick={commit} disabled={busy || !title.trim()}>
+              {editing ? "Save" : "Create"}
+            </Button>
+          )}
         </>
       }
     >
-      <Field label="Title">
-        <Input
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Build a tiny RTOS scheduler"
-          onKeyDown={(e) => e.key === "Enter" && commit()}
-        />
-      </Field>
-      <Field label="What is it?" hint="Optional one-liner — why it's meaningful to you.">
-        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} />
-      </Field>
-      <Field label="Repo / link">
-        <Input
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-          placeholder="https://github.com/…"
-        />
-      </Field>
-      {roadmaps.length ? (
-        <Field label="Linked roadmap" hint="The learning path this project puts into practice.">
-          <Select value={roadmapId} onChange={(e) => setRoadmapId(e.target.value)}>
-            <option value="">— none —</option>
-            {roadmaps.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      ) : null}
-      <Field label="Stage">
-        <div className="flex gap-2">
-          {FLOW.map((st) => (
+      {editing ? null : (
+        <div
+          role="radiogroup"
+          aria-label="How to create the project"
+          className="mb-1 inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+        >
+          {[
+            ["manual", "Manual"],
+            ["claude", "With Claude"],
+          ].map(([id, label]) => (
             <button
-              key={st}
-              onClick={() => setStatus(st)}
-              className={`flex-1 rounded-xl border px-3 py-2 text-sm capitalize transition ${
-                status === st
-                  ? "border-trail-400 bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300"
-                  : "border-slate-300 text-slate-500 dark:border-slate-600"
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mode === id}
+              onClick={() => setMode(id)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                mode === id
+                  ? "bg-white text-trail-700 shadow-sm dark:bg-slate-900 dark:text-trail-300"
+                  : "text-slate-500 dark:text-slate-400"
               }`}
             >
-              {st}
+              {label}
             </button>
           ))}
         </div>
-      </Field>
+      )}
+
+      {claudeMode ? (
+        <div>
+          <p className="mb-2 text-xs text-slate-400">
+            Copy the prompt, brainstorm projects with Claude — what to build, how each ties to a
+            roadmap — then paste the reply back to save.
+          </p>
+          <PlanWithClaude ctx={ctx} />
+        </div>
+      ) : (
+        <>
+          <Field label="Title">
+            <Input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Build a tiny RTOS scheduler"
+              onKeyDown={(e) => e.key === "Enter" && commit()}
+            />
+          </Field>
+          <Field label="What is it?" hint="Optional one-liner — why it's meaningful to you.">
+            <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} />
+          </Field>
+          <Field label="Repo / link">
+            <Input
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/…"
+            />
+          </Field>
+          {roadmaps.length ? (
+            <Field label="Linked roadmap" hint="The learning path this project puts into practice.">
+              <Select value={roadmapId} onChange={(e) => setRoadmapId(e.target.value)}>
+                <option value="">— none —</option>
+                {roadmaps.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          <Field label="Stage">
+            <div className="flex gap-2">
+              {FLOW.map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setStatus(st)}
+                  className={`flex-1 rounded-xl border px-3 py-2 text-sm capitalize transition ${
+                    status === st
+                      ? "border-trail-400 bg-trail-50 text-trail-700 dark:bg-slate-800 dark:text-trail-300"
+                      : "border-slate-300 text-slate-500 dark:border-slate-600"
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </>
+      )}
     </Modal>
   );
 }

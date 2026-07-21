@@ -717,15 +717,15 @@ test("kata round-trip the full-state PUT (camelCase, active as a real bool)", ()
   assert.ok(!("kataDays" in s)); // history stays off the everyday paths, like completions
 });
 
-test("validateState: at most 5 ACTIVE kata — inactive ones don't count", () => {
+test("validateState: any number of ACTIVE kata is allowed (no cap)", () => {
   const kata = (n, active = true) =>
     Array.from({ length: n }, (_, i) => ({ id: `k${i}${active}`, title: `k ${i}`, active }));
-  assert.match(db.validateState({ kata: kata(6) }), /at most 5 kata can be active/);
-  assert.equal(db.validateState({ kata: kata(5) }), null);
-  assert.equal(db.validateState({ kata: [...kata(5), ...kata(4, false)] }), null);
-  // absent `active` counts as active (the schema default)
-  assert.ok(
-    db.validateState({ kata: Array.from({ length: 6 }, (_, i) => ({ id: `x${i}`, title: "t" })) }),
+  assert.equal(db.validateState({ kata: kata(20) }), null);
+  assert.equal(db.validateState({ kata: [...kata(12), ...kata(4, false)] }), null);
+  // absent `active` counts as active (the schema default) — still fine at scale
+  assert.equal(
+    db.validateState({ kata: Array.from({ length: 12 }, (_, i) => ({ id: `x${i}`, title: "t" })) }),
+    null,
   );
 });
 
@@ -926,18 +926,18 @@ test("a kata vanishing from a PUT is trashed; restore brings it back intact", ()
   assert.equal(back.active, false);
 });
 
-test("restoring a kata into a full dōjō brings it back retired, not invalid", () => {
+test("restoring an active kata brings it back active (no cap to trip)", () => {
   db.resetAll();
   const five = Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, title: `form ${i}` }));
   // "gone" is active alongside four others…
   db.putState({ kata: [{ id: "gone", title: "the sixth", active: true }, ...five.slice(0, 4)] });
-  // …then it vanishes and the dōjō refills to 5 active before the undo
+  // …then it vanishes and the dōjō refills before the undo
   db.putState({ kata: five });
   const row = db.listTrash().find((r) => r.title === "the sixth");
   const { state } = db.restoreTrash(row.id);
   const back = state.kata.find((k) => k.title === "the sixth");
-  assert.equal(back.active, false); // 5 already active — it returns retired
-  assert.equal(db.validateState(state), null); // the next PUT can't get stranded
+  assert.equal(back.active, true); // no cap — it returns in the state it was trashed in
+  assert.equal(db.validateState(state), null);
 });
 
 test("restoreTrash: a recreated kata id forces a remap", () => {

@@ -15,9 +15,12 @@ Environment=HOST=0.0.0.0
 # server's local day, so a UTC-only box would mis-file evening activity. (`timedatectl
 # list-timezones` to find yours.)
 Environment=TZ=America/New_York
-# To enable the optional local model layer (see README), uncomment:
-# Environment=MICHI_LLM=1
+# The local model layer (Ollama, see README) is ON by default — every call falls
+# back to the deterministic path when Ollama is absent, so no config is required.
+# To DISABLE it, uncomment the first line. The other two override the defaults.
+# Environment=MICHI_LLM=0
 # Environment=MICHI_LLM_MODEL=llama3.2:3b
+# Environment=MICHI_LLM_URL=http://localhost:11434
 Restart=on-failure
 RestartSec=3
 

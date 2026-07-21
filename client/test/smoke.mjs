@@ -341,7 +341,7 @@ const navTo = async (label) => {
   return clickIn(nav, (x) => x.textContent.includes(label));
 };
 
-for (const name of ["Home", "Today", "Plan", "Journal", "Progress"]) {
+for (const name of ["Home", "Today", "Plan", "Focus", "Journal", "Progress"]) {
   try {
     if (!(await navTo(name))) {
       fails.push(`${name}: no nav button`);

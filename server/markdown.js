@@ -27,9 +27,6 @@ import { KATA_LIBRARY } from "./kata.js";
 
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
-// mirrors db.js's MAX_ACTIVE_KATA (not exported there) — preview must warn
-// wherever apply's validateState will reject
-const MAX_ACTIVE_KATA = 5;
 // known library form ids — a form: token outside this set is kept verbatim,
 // but flagged: it's usually Claude misremembering (or inventing) an id
 const KATA_FORM_IDS = new Set(KATA_LIBRARY.map((k) => k.id));
@@ -1046,16 +1043,6 @@ export function planSync(parsed, state) {
       position: nextPosition(state.kata, creates.kata),
       createdAt: now,
     });
-  }
-
-  // preview must warn where apply will reject: count the ACTIVE kata this plan
-  // would leave behind — existing rows through their pending active flip (accum
-  // carries the merged doc view), plus the creates
-  const activeKata =
-    (state.kata || []).filter((k) => accum.get(`kata:${k.id}`)?.fields.active ?? k.active).length +
-    creates.kata.filter((k) => k.active).length;
-  if (activeKata > MAX_ACTIVE_KATA) {
-    warn(`this plan would activate ${activeKata} kata — apply will be rejected; retire some first`);
   }
 
   // a merged (or unchanged) line can leave a row with nothing to change — drop it

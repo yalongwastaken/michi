@@ -15,6 +15,3 @@ export const KATA_LIBRARY = [
   { id: "read-10", title: "read 10 pages", hint: "small pages, big years" },
   { id: "lights-out", title: "lights out on time", hint: "the day ends where sleep begins" },
 ];
-
-// mirror of server/db.js MAX_ACTIVE_KATA — a dōjō, not a checklist
-export const MAX_ACTIVE_KATA = 5;

@@ -3,6 +3,7 @@ import {
   Home as HomeIcon,
   Sun,
   Map,
+  Timer,
   CalendarDays,
   TrendingUp,
   Flame,
@@ -16,6 +17,7 @@ import { createQueue } from "./lib/queue.js";
 import Home from "./views/Home.jsx";
 import Today from "./views/Today.jsx";
 import Plan from "./views/Plan.jsx";
+import Focus from "./views/Focus.jsx";
 import Journal from "./views/Journal.jsx";
 import Progression from "./views/Progression.jsx";
 import Settings from "./views/Settings.jsx";
@@ -31,6 +33,7 @@ const TABS = [
   { id: "home", label: "Home", icon: HomeIcon },
   { id: "today", label: "Today", icon: Sun },
   { id: "plan", label: "Plan", icon: Map },
+  { id: "focus", label: "Focus", icon: Timer },
   { id: "journal", label: "Journal", icon: CalendarDays },
   { id: "progression", label: "Progress", icon: TrendingUp },
 ];
@@ -603,6 +606,12 @@ export default function App({ onTheme }) {
         {tab === "home" && <Home ctx={ctx} />}
         {tab === "today" && <Today ctx={ctx} />}
         {tab === "plan" && <Plan ctx={ctx} />}
+        {/* Focus stays MOUNTED across tabs (only hidden) so a running block — its
+            interval, wall-clock end, and scheduled push — survives a tab switch
+            instead of being silently destroyed. */}
+        <div className={tab === "focus" ? undefined : "hidden"}>
+          <Focus ctx={ctx} />
+        </div>
         {tab === "journal" && <Journal ctx={ctx} />}
         {tab === "progression" && <Progression ctx={ctx} />}
       </main>
@@ -621,7 +630,7 @@ export default function App({ onTheme }) {
                 key={id}
                 onClick={() => setTab(id)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition ${
+                className={`relative flex flex-1 flex-col items-center gap-0.5 whitespace-nowrap py-2.5 text-xs font-medium transition ${
                   active
                     ? "text-trail-700 dark:text-trail-400"
                     : "text-slate-500 dark:text-slate-400"

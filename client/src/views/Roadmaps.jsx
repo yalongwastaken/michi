@@ -10,7 +10,6 @@ import {
   Archive,
   ArchiveRestore,
   Link2,
-  Upload,
   Pencil,
   CalendarClock,
   StickyNote,
@@ -22,7 +21,6 @@ import {
   IconButton,
   Input,
   Field,
-  Textarea,
   Select,
   Modal,
   EmptyState,
@@ -31,13 +29,13 @@ import {
 } from "../ui.jsx";
 import { roadmapTree, nextPosition, reorder } from "../lib/tree.js";
 import { deleteRoadmap, deleteStep } from "../lib/mutate.js";
-import { parseRoadmap } from "../lib/parse.js";
 import { shortDate } from "../lib/format.js";
 import { focusMainHeading } from "../lib/a11y.js";
 import { uid } from "../lib/uid.js";
 import { checkRituals, confettiBurst } from "../lib/celebrate.js";
 import Mascot from "./Mascot.jsx";
 import Celebration from "./Celebration.jsx";
+import PlanWithClaude from "./PlanWithClaude.jsx";
 
 const STEP_MINUTE_OPTS = [
   ["", "default"],
@@ -814,6 +812,10 @@ function RoadmapModal({ ctx, roadmap = null, onClose }) {
   const [stepMinutes, setStepMinutes] = useState(
     roadmap?.stepMinutes != null ? String(roadmap.stepMinutes) : "",
   );
+  // creating only: "manual" fills the form, "claude" swaps it for the plan-with-Claude
+  // flow so there's no manual clutter. Editing is always the manual form.
+  const [mode, setMode] = useState("manual");
+  const claudeMode = !editing && mode === "claude";
 
   const submitting = useRef(false); // Enter + click (or two quick Enters) → one create
   const commit = async () => {
@@ -858,179 +860,97 @@ function RoadmapModal({ ctx, roadmap = null, onClose }) {
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={commit} disabled={busy || !title.trim()}>
-            {editing ? "Save" : "Create"}
-          </Button>
-        </>
-      }
-    >
-      <Field label="Title">
-        <Input
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Bare-metal embedded"
-          onKeyDown={(e) => e.key === "Enter" && commit()}
-        />
-      </Field>
-      <div className="flex gap-3">
-        <Field label="Finish by" hint="Optional — Michi paces you to hit it.">
-          <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
-        </Field>
-        <Field label="Minutes / step" hint="For the planner's budget.">
-          <Select value={stepMinutes} onChange={(e) => setStepMinutes(e.target.value)}>
-            {STEP_MINUTE_OPTS.map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <Field label="Source link" hint="Optional — a roadmap.sh track, a GitHub repo, a course…">
-        <Input
-          value={sourceUrl}
-          onChange={(e) => setSourceUrl(e.target.value)}
-          placeholder="https://roadmap.sh/…"
-        />
-      </Field>
-      <Field label="Color">
-        <ColorPicker color={color} setColor={setColor} />
-      </Field>
-    </Modal>
-  );
-}
-
-function ImportRoadmapModal({ ctx, onClose }) {
-  const { save, busy } = ctx;
-  const [title, setTitle] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [color, setColor] = useState(COLORS[0]);
-  const [targetDate, setTargetDate] = useState("");
-  const [md, setMd] = useState("");
-
-  const parsed = parseRoadmap(md, { title });
-
-  const create = async () => {
-    if (!md.trim() || parsed.stepCount === 0) {
-      return;
-    }
-    const ok = await save((s) => {
-      const rmId = uid("rm");
-      s.roadmaps.push({
-        id: rmId,
-        title: parsed.title,
-        sourceUrl: sourceUrl.trim() || null,
-        color,
-        targetDate: targetDate || null,
-        archived: false,
-        position: nextPosition(s.roadmaps),
-      });
-      parsed.milestones.forEach((m, mi) => {
-        const msId = uid("ms");
-        s.milestones.push({ id: msId, roadmapId: rmId, title: m.title, position: mi });
-        m.steps.forEach((st, si) => {
-          s.steps.push({
-            id: uid("step"),
-            milestoneId: msId,
-            title: st.title,
-            status: st.status,
-            resourceUrl: st.resourceUrl || null,
-            position: si,
-          });
-        });
-      });
-    });
-    if (ok !== false) {
-      onClose();
-    }
-  };
-
-  return (
-    <Modal
-      title="Import a roadmap"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={create} disabled={busy || parsed.stepCount === 0}>
-            Import {parsed.stepCount ? `${parsed.stepCount} steps` : ""}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-sm text-slate-500">
-        Paste Markdown — a roadmap.sh export, a GitHub roadmap README, course notes.
-        <span className="text-slate-400">
-          {" "}
-          Headings become milestones, list items become steps, <code>- [x]</code> marks done, and{" "}
-          <code>[text](link)</code> attaches a resource.
-        </span>
-      </p>
-      <Field label="Markdown">
-        <Textarea
-          rows={8}
-          value={md}
-          onChange={(e) => setMd(e.target.value)}
-          placeholder={
-            "## Fundamentals\n- [Intro to GPIO](https://…)\n- [ ] UART\n\n## Peripherals\n- SPI\n- I2C"
-          }
-        />
-      </Field>
-      <div className="flex gap-3">
-        <Field label="Title" hint="Defaults to the first # heading.">
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={parsed.title}
-          />
-        </Field>
-        <Field label="Finish by" hint="Optional deadline.">
-          <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
-        </Field>
-      </div>
-      <Field label="Source link">
-        <Input
-          value={sourceUrl}
-          onChange={(e) => setSourceUrl(e.target.value)}
-          placeholder="https://roadmap.sh/…"
-        />
-      </Field>
-      <Field label="Color">
-        <ColorPicker color={color} setColor={setColor} />
-      </Field>
-      {md.trim() ? (
-        <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
-          {parsed.stepCount ? (
-            <>
-              <p className="font-medium text-slate-700 dark:text-slate-200">
-                Preview: {parsed.title}
-              </p>
-              <ul className="mt-1 space-y-0.5 text-slate-500">
-                {parsed.milestones.map((m, i) => (
-                  <li key={i}>
-                    <span className="text-trail-700 dark:text-trail-400">{m.title}</span> —{" "}
-                    {m.steps.length} steps
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="text-slate-400">
-              No steps found yet — add some headings and list items above.
-            </p>
+          {claudeMode ? null : (
+            <Button onClick={commit} disabled={busy || !title.trim()}>
+              {editing ? "Save" : "Create"}
+            </Button>
           )}
+        </>
+      }
+    >
+      {editing ? null : (
+        <div
+          role="radiogroup"
+          aria-label="How to create the roadmap"
+          className="mb-1 inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+        >
+          {[
+            ["manual", "Manual"],
+            ["claude", "With Claude"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mode === id}
+              onClick={() => setMode(id)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                mode === id
+                  ? "bg-white text-trail-700 shadow-sm dark:bg-slate-900 dark:text-trail-300"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      ) : null}
+      )}
+
+      {claudeMode ? (
+        <div>
+          <p className="mb-2 text-xs text-slate-400">
+            Copy the prompt, shape the whole roadmap — milestones, steps, resource links — with
+            Claude, then paste the reply back to save it.
+          </p>
+          <PlanWithClaude ctx={ctx} />
+        </div>
+      ) : (
+        <>
+          <Field label="Title">
+            <Input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Bare-metal embedded"
+              onKeyDown={(e) => e.key === "Enter" && commit()}
+            />
+          </Field>
+          <div className="flex gap-3">
+            <Field label="Finish by" hint="Optional — Michi paces you to hit it.">
+              <Input
+                type="date"
+                value={targetDate}
+                onChange={(e) => setTargetDate(e.target.value)}
+              />
+            </Field>
+            <Field label="Minutes / step" hint="For the planner's budget.">
+              <Select value={stepMinutes} onChange={(e) => setStepMinutes(e.target.value)}>
+                {STEP_MINUTE_OPTS.map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label="Source link" hint="Optional — a roadmap.sh track, a GitHub repo, a course…">
+            <Input
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://roadmap.sh/…"
+            />
+          </Field>
+          <Field label="Color">
+            <ColorPicker color={color} setColor={setColor} />
+          </Field>
+        </>
+      )}
     </Modal>
   );
 }
 
 export default function Roadmaps({ ctx }) {
   const [adding, setAdding] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [editRm, setEditRm] = useState(null);
   const [ritual, setRitual] = useState(null); // the daruma's second-eye toast
   const tree = roadmapTree(ctx.state);
@@ -1054,14 +974,9 @@ export default function Roadmaps({ ctx }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Roadmaps</h2>
-        <div className="flex gap-2">
-          <Button variant="subtle" onClick={() => setImporting(true)}>
-            <Upload size={16} /> Import
-          </Button>
-          <Button onClick={() => setAdding(true)}>
-            <Plus size={16} /> New
-          </Button>
-        </div>
+        <Button onClick={() => setAdding(true)}>
+          <Plus size={16} /> New
+        </Button>
       </div>
 
       {tree.length === 0 ? (
@@ -1069,18 +984,14 @@ export default function Roadmaps({ ctx }) {
           icon={Map}
           title="No roadmaps yet"
           action={
-            <div className="flex gap-2">
-              <Button variant="subtle" onClick={() => setImporting(true)}>
-                <Upload size={16} /> Import Markdown
-              </Button>
-              <Button onClick={() => setAdding(true)}>
-                <Plus size={16} /> New roadmap
-              </Button>
-            </div>
+            <Button onClick={() => setAdding(true)}>
+              <Plus size={16} /> New roadmap
+            </Button>
           }
         >
-          Drop in a learning path — a roadmap.sh track, a GitHub roadmap, a book — and break it into
-          milestones and steps. Michi will surface the next step each day.
+          Add a learning path — a roadmap.sh track, a GitHub roadmap, a book — broken into
+          milestones and steps, and Michi will surface the next step each day. Hit New to build one
+          by hand or plan it with Claude.
         </EmptyState>
       ) : (
         <div className="space-y-3">
@@ -1104,7 +1015,6 @@ export default function Roadmaps({ ctx }) {
 
       {adding && <RoadmapModal ctx={ctx} onClose={() => setAdding(false)} />}
       {editing && <RoadmapModal ctx={ctx} roadmap={editing} onClose={() => setEditRm(null)} />}
-      {importing && <ImportRoadmapModal ctx={ctx} onClose={() => setImporting(false)} />}
       {ritual ? (
         // offset below App's celebration toast (top-4) so simultaneous fires stack
         <Celebration

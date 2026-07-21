@@ -1,12 +1,13 @@
 // Dojo.jsx — 道場 dōjō, the training hall: one bottom sheet to manage the daily
 // forms (型 kata). Active list with retire, data-driven suggestions, the builtin
 // library, an inline "your own" add, and the retired pile (re-activate / delete).
-// All edits are plain full-state saves; the server enforces the ≤5-active cap and
-// auto-trashes deleted rows (kind "kata"), so App's undo toast covers deletes.
+// All edits are plain full-state saves; the server auto-trashes deleted rows
+// (kind "kata"), so App's undo toast covers deletes. There's no cap on how many
+// kata can be active — practice as many forms as you want to hold.
 import { useRef, useState } from "react";
 import { Plus, StickyNote, Sparkles, ChevronDown, ChevronRight, Trash2, Undo2 } from "lucide-react";
 import { Modal, Button, Input, ConfirmButton } from "../ui.jsx";
-import { KATA_LIBRARY, MAX_ACTIVE_KATA } from "../lib/kata.js";
+import { KATA_LIBRARY } from "../lib/kata.js";
 import { uid } from "../lib/uid.js";
 
 const byPosition = (a, b) => (a.position ?? 0) - (b.position ?? 0);
@@ -39,7 +40,6 @@ export default function Dojo({ ctx, onClose }) {
   const rows = state.kata || [];
   const active = rows.filter((k) => k.active).sort(byPosition);
   const retired = rows.filter((k) => !k.active).sort(byPosition);
-  const full = active.length >= MAX_ACTIVE_KATA;
 
   const hintOf = new Map(KATA_LIBRARY.map((k) => [k.id, k.hint]));
   // added-then-retired counts as "knows about it, chose not to" — same rule the
@@ -64,11 +64,11 @@ export default function Dojo({ ctx, onClose }) {
     return ok;
   };
 
-  const capMsg = `couldn't save — at most ${MAX_ACTIVE_KATA} kata can be active. Retire one first.`;
+  const saveFail = "couldn't save that kata — try again";
   const adopt = (builtinId, adoptTitle) =>
     mutate((s) => {
       s.kata = [...(s.kata || []), newKata(s, { title: adoptTitle, builtinId })];
-    }, capMsg);
+    }, saveFail);
   const retire = (id) =>
     mutate((s) => {
       const k = (s.kata || []).find((x) => x.id === id);
@@ -82,7 +82,7 @@ export default function Dojo({ ctx, onClose }) {
       if (k) {
         k.active = true;
       }
-    }, capMsg);
+    }, saveFail);
   // save() itself offers the undo toast from the PUT's trash receipt
   const remove = (id) =>
     mutate((s) => {
@@ -97,7 +97,7 @@ export default function Dojo({ ctx, onClose }) {
     submitting.current = true;
     const ok = await mutate((s) => {
       s.kata = [...(s.kata || []), newKata(s, { title: title.trim(), note: note.trim() || null })];
-    }, capMsg);
+    }, saveFail);
     submitting.current = false;
     if (ok) {
       setTitle("");
@@ -113,7 +113,9 @@ export default function Dojo({ ctx, onClose }) {
       </p>
 
       <div>
-        <SectionHead right={`${active.length} of ${MAX_ACTIVE_KATA} active`}>your kata</SectionHead>
+        <SectionHead right={active.length ? `${active.length} active` : null}>
+          your kata
+        </SectionHead>
         {active.length === 0 ? (
           <p className="mt-1.5 px-1 text-sm text-slate-400">
             none yet — adopt a form below, or write your own.
@@ -177,8 +179,7 @@ export default function Dojo({ ctx, onClose }) {
                 </div>
                 <Button
                   variant="subtle"
-                  disabled={busy || full}
-                  title={full ? "retire one first" : undefined}
+                  disabled={busy}
                   onClick={() => adopt(s.builtinId, s.title)}
                   aria-label={`Adopt kata: ${s.title}`}
                   className="shrink-0 !py-1.5 text-xs"
@@ -188,7 +189,6 @@ export default function Dojo({ ctx, onClose }) {
               </li>
             ))}
           </ul>
-          {full ? <p className="mt-1 px-1 text-xs text-slate-400">retire one first</p> : null}
         </div>
       ) : null}
 
@@ -199,7 +199,7 @@ export default function Dojo({ ctx, onClose }) {
             {library.map((k) => (
               <button
                 key={k.id}
-                disabled={busy || full}
+                disabled={busy}
                 title={k.hint}
                 onClick={() => adopt(k.id, k.title)}
                 aria-label={`Adopt kata: ${k.title} — ${k.hint}`}
@@ -223,12 +223,7 @@ export default function Dojo({ ctx, onClose }) {
               placeholder="a form of your own… e.g. “inbox zero by nine”"
               aria-label="New kata"
             />
-            <Button
-              type="submit"
-              disabled={busy || full || !title.trim()}
-              title={full ? "retire one first" : undefined}
-              aria-label="Add kata"
-            >
+            <Button type="submit" disabled={busy || !title.trim()} aria-label="Add kata">
               <Plus size={16} />
             </Button>
           </div>
@@ -238,7 +233,6 @@ export default function Dojo({ ctx, onClose }) {
             placeholder="note (optional)"
             aria-label="Kata note"
           />
-          {full ? <p className="px-1 text-xs text-slate-400">retire one first</p> : null}
         </form>
       </div>
 
@@ -261,8 +255,7 @@ export default function Dojo({ ctx, onClose }) {
                   </span>
                   <button
                     onClick={() => reactivate(k.id)}
-                    disabled={busy || full}
-                    title={full ? "retire one first" : undefined}
+                    disabled={busy}
                     aria-label={`Re-activate ${k.title}`}
                     className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-trail-700 transition hover:bg-trail-50 disabled:opacity-40 dark:text-trail-400 dark:hover:bg-slate-800"
                   >

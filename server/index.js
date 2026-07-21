@@ -35,10 +35,18 @@ import { planDay } from "./planner.js";
 import { insights, kataSuggestions } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { buildDigest } from "./digest.js";
-import { aiConfig, aiEnabled, refinePlan } from "./suggest.js";
-import { draftStructured, normalizeMode } from "./draft.js";
+import { aiConfig, refinePlan } from "./suggest.js";
 import { listBackups, runBackup, backupDir } from "./backup.js";
 import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
+import {
+  vapidKeys,
+  addSubscription,
+  removeSubscription,
+  scheduleReminder,
+  cancelReminder,
+  suggestFocusGoal,
+  scheduleFocusLoop,
+} from "./focus.js";
 
 // a valid calendar day string, else server-local today — so a malformed ?day= can't
 // reach the date math in momentum()/planner and 500 the request
@@ -465,34 +473,6 @@ app.post("/api/sync/apply", (req, res) => {
   }
 });
 
-// POST /api/ai/draft — turn pasted raw content into sync markdown with the local
-// model. Returns markdown only; the client runs it through /api/sync/preview +
-// /api/sync/apply, so the same validation + human approval as a pasted reply apply.
-app.post("/api/ai/draft", async (req, res) => {
-  if (!aiEnabled()) {
-    return res.status(503).json({ error: "the local model is off — set MICHI_LLM=1 to enable it" });
-  }
-  const text = req.body?.text;
-  if (typeof text !== "string" || !text.trim()) {
-    return res.status(400).json({ error: "paste some text to draft from" });
-  }
-  if (text.length > 20000) {
-    return res.status(413).json({ error: "that's a lot of text — trim it under ~20k characters" });
-  }
-  try {
-    const markdown = await draftStructured(text, normalizeMode(req.body?.mode), {
-      today: dayKey(),
-    });
-    if (!markdown) {
-      return res.status(502).json({ error: "the model didn't return a usable draft — try again" });
-    }
-    res.json({ markdown });
-  } catch (e) {
-    console.warn("POST /api/ai/draft failed:", e.message);
-    res.status(502).json({ error: "could not reach the local model" });
-  }
-});
-
 // ── journal / time log ──────────────────────────────────────────────────────
 // Validate a create/update body. `partial` (PATCH) lets fields be absent.
 function validateJournalInput(b, { partial = false } = {}) {
@@ -569,6 +549,55 @@ app.delete("/api/journal/:id", (req, res) => {
   res.json({ ok: deleteJournalEntry(req.params.id) });
 });
 
+// ── focus (Pomodoro) + Web Push notifications ────────────────────────────────
+// The VAPID public key a device needs to subscribe. Generated + persisted lazily.
+app.get("/api/push/key", (_req, res) => {
+  res.json({ key: vapidKeys().publicKey });
+});
+
+app.post("/api/push/subscribe", (req, res) => {
+  const out = addSubscription(req.body);
+  if (out.error) {
+    return res.status(400).json({ error: out.error });
+  }
+  res.json(out);
+});
+
+app.post("/api/push/unsubscribe", (req, res) => {
+  const endpoint = req.body?.endpoint;
+  if (typeof endpoint !== "string" || !endpoint) {
+    return res.status(400).json({ error: "endpoint is required" });
+  }
+  res.json(removeSubscription(endpoint));
+});
+
+// schedule the end-of-block push (client passes the absolute end time in ms)
+app.post("/api/focus/schedule", (req, res) => {
+  const out = scheduleReminder(req.body || {});
+  if (out.error) {
+    return res.status(400).json({ error: out.error });
+  }
+  res.json(out);
+});
+
+app.post("/api/focus/cancel", (req, res) => {
+  const id = req.body?.id;
+  if (typeof id !== "string" || !id) {
+    return res.status(400).json({ error: "id is required" });
+  }
+  res.json(cancelReminder(id));
+});
+
+// a one-line goal for a focus block from the day's tasks/steps (local model when on)
+app.post("/api/focus/suggest", async (req, res, next) => {
+  try {
+    const targets = Array.isArray(req.body?.targets) ? req.body.targets.slice(0, 20) : [];
+    res.json({ suggestion: await suggestFocusGoal(targets) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // unknown API paths get a clean 404 (not the SPA shell)
 app.use("/api", (_req, res) => res.status(404).json({ error: "not found" }));
 
@@ -609,6 +638,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const server = app.listen(PORT, HOST, () =>
     console.log(`michi server on http://${HOST}:${PORT}`),
   );
+  // the focus-reminder push loop (no-op until a device subscribes + a block is running)
+  scheduleFocusLoop();
   // without this, a bind failure throws unhandled and systemd (RestartSec=3) loops it
   // tight forever — log something actionable and exit cleanly instead
   server.on("error", (err) => {

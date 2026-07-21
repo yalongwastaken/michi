@@ -766,37 +766,21 @@ test("kata: an unknown anchor demotes to a create; anchor-less titles match", ()
   assert.deepEqual(plan.updates, []); // ka2 matched by title and already retired
 });
 
-test("sync cannot activate a sixth kata — apply fails atomically", () => {
+test("sync can activate a sixth (and beyond) kata — no cap", () => {
   db.importAll({
     kata: Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, title: `form ${i}` })),
   });
-  const before = db.getFullState();
-  assert.throws(
-    () => md.applySync(md.parseSync("## Kata\n- [x] a sixth form\n")),
-    /at most 5 kata/,
-  );
-  assert.deepEqual(db.getFullState(), before); // nothing was written
-  // a RETIRED sixth form is welcome — the cap is on active practice, not ideas
-  const ok = md.applySync(md.parseSync("## Kata\n- [ ] a sixth form\n"));
+  const ok = md.applySync(md.parseSync("## Kata\n- [x] a sixth form\n"));
   assert.equal(ok.state.kata.length, 6);
-  assert.equal(ok.state.kata.find((k) => k.title === "a sixth form").active, false);
+  assert.equal(ok.state.kata.find((k) => k.title === "a sixth form").active, true);
 });
 
-test("preview warns where apply will reject: a plan past the 5-active kata cap", () => {
+test("preview never warns about a kata cap — there isn't one", () => {
   db.importAll({
     kata: Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, title: `form ${i}` })),
   });
   const plan = md.planSync(md.parseSync("## Kata\n- [x] a sixth form\n"), db.getFullState());
-  assert.ok(
-    plan.warnings.some((w) => /would activate 6 kata — apply will be rejected/.test(w)),
-    plan.warnings.join("; "),
-  );
-  // retiring one in the same doc keeps the plan inside the cap — no warning
-  const ok = md.planSync(
-    md.parseSync("## Kata\n- [ ] form 0 {#f0}\n- [x] a sixth form\n"),
-    db.getFullState(),
-  );
-  assert.ok(!ok.warnings.some((w) => /would activate/.test(w)));
+  assert.ok(!plan.warnings.some((w) => /activate|cap|at most/.test(w)), plan.warnings.join("; "));
 });
 
 test("kata checkbox: `[~]` counts as ACTIVE — doing is practicing, not retiring", () => {

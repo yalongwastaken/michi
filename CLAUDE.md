@@ -10,9 +10,11 @@ mini PC and reach it from your phone over **Tailscale** (no public ports); it
 installs as a **PWA** ("Add to Home Screen"). It tracks long-running learning
 **roadmaps** (→ milestones → steps), **projects** to ship, a daily **tasks**
 layer, **kata** (daily self-regulation forms), a **journal / time log** of what
-actually happened, and a game layer (streak, XP/waypoints, discipline grades,
-heatmap). An optional local LLM (Ollama) refines the day plan and drafts
-roadmaps/tasks from pasted notes.
+actually happened, a **Focus (Pomodoro) timer** whose blocks target the day's
+tasks/steps and log to the journal (with opt-in Web Push when a block ends), and a
+game layer (streak, XP/waypoints, discipline grades, heatmap). A local LLM (Ollama,
+**on by default**) refines the day plan and suggests focus-block goals; the Claude
+round-trip (export prompt → paste reply) handles structuring roadmaps/tasks.
 
 Design north star (from the owner): **it must not feel like a chore.** Favor
 one-tap/one-field interactions, calm copy, no nagging.
@@ -24,9 +26,10 @@ one-tap/one-field interactions, calm copy, no nagging.
   - `db.js` schema + all accessors + `validateState`/`importAll`/`getFullState`.
   - `engine.js` momentum (streak, XP, discipline, heatmap), `buildToday`.
   - `planner.js` deterministic day plan; `suggest.js` optional LLM refinement.
-  - `draft.js` optional LLM "structure pasted notes → sync markdown".
   - `markdown.js` the Claude **sync** round-trip (export prompt + parse/plan/apply).
   - `review.js` weekly review; `digest.js` morning/evening text; `insights.js`.
+  - `focus.js` opt-in Web Push (VAPID + subscriptions in `meta`) for the Focus
+    (Pomodoro) tab's end-of-block reminders, plus the local-model goal suggestion.
   - `index.js` all routes; `dates.js` local-day helpers; `backup.js`.
 - **client/** — React 18 + Vite 8 + Tailwind 3 thin client (served by the server in prod).
   - `src/App.jsx` — tabs, global state, optimistic write queue, the FAB.
@@ -54,9 +57,11 @@ from source, so it catches render/runtime breakage a plain build won't.
 ## Environment
 
 - `MICHI_DB` (default `server/data/michi.db`), `PORT` (4001), `HOST` (0.0.0.0).
-- `MICHI_LLM=1` enables the local model; `MICHI_LLM_MODEL` (default
+- **The local model is ON by default** — only an explicit off value
+  (`MICHI_LLM=0`/`false`/`off`/`no`) disables it. `MICHI_LLM_MODEL` (default
   `llama3.2:3b`), `MICHI_LLM_URL` (default `http://localhost:11434`, Ollama).
-  When off, AI features hide/no-op and the deterministic paths stand.
+  Every model call falls back gracefully, so "on" with no Ollama running just
+  takes the deterministic path; when explicitly off, AI features hide/no-op.
 
 ## Data model & invariants
 
@@ -71,8 +76,8 @@ from source, so it catches render/runtime breakage a plain build won't.
 - **Streak/daily-goal count real work only** (tasks + steps). Kata and journal
   never inflate the streak/goal. Heatmap/XP count kata too. Weekly review counts
   tasks+steps only (kata excluded — see `review.js`).
-- **Sync never deletes or archives.** `markdown.js` (Claude round-trip) and
-  `draft.js` (local model) only create/update, and every AI output flows through
+- **Sync never deletes or archives.** `markdown.js` (the Claude round-trip) only
+  creates/updates, and every synced change flows through
   `parseSync → planSync → preview → applySync` so the user approves a diff first.
 - Writes are **optimistic** on the client and **serialized** through a queue
   (`lib/queue.js`) with optimistic-concurrency `rev` checks in `putState`.
@@ -83,14 +88,14 @@ from source, so it catches render/runtime breakage a plain build won't.
   (terracotta) are the two brand ramps; `slate` was re-tinted to a warm charcoal
   (dark mode is not blue). All defined by overriding those names in
   `client/tailwind.config.js` so component classes never churn. Keep it that way.
-- **ESLint node globals target `server/**/*.js`** (not `.mjs`). Server is ESM
-  (`"type":"module"`), so write server scripts as `.js`, not `.mjs`, or they'll
-  flag `process`/`console` as undefined.
+- **ESLint node globals target `server/**/\*.js`** (not `.mjs`). Server is ESM
+(`"type":"module"`), so write server scripts as `.js`, not `.mjs`, or they'll
+flag `process`/`console` as undefined.
 - **Service worker cache** (`client/public/sw.js`): bump the `CACHE` constant
   whenever the app shell changes, or installed PWAs serve a stale shell.
 - **Secure context:** clipboard + service worker need HTTPS. Over plain-HTTP
   Tailscale they degrade; front the server with `tailscale serve` for HTTPS.
-  Server-side features (LLM drafting) work over HTTP fine.
+  Server-side features (plan refinement, focus-goal suggestions) work over HTTP fine.
 - **Dates are local days** (`YYYY-MM-DD`) via `server/dates.js` / `lib/format.js`
   `todayKey`. The journal calendar uses UTC-noon math purely for grid layout.
 - Prefer the existing UI primitives in `client/src/ui.jsx` (`Card`, `Button`,

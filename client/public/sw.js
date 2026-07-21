@@ -2,9 +2,74 @@
 // survive a flaky connection, WITHOUT ever caching /api (your data stays fresh and
 // private). Bump CACHE to invalidate old shells on the next visit.
 // v3: the persimmon/indigo repaint — recolored shell, icons, and favicon
-const CACHE = "michi-shell-v3";
+// v4: web-push handlers for the Focus tab's end-of-block reminders
+// v5: re-subscribe on pushsubscriptionchange (browser key rotation)
+const CACHE = "michi-shell-v5";
 
 self.addEventListener("install", () => self.skipWaiting());
+
+// ── focus-block push reminders (opt-in from Settings → Notifications) ────────────
+// The server sends one push when a running focus block ends; payload is a small
+// {title, body} the SW turns into a notification. Tapping it focuses/opens the app.
+self.addEventListener("push", (e) => {
+  let data = {};
+  try {
+    data = e.data?.json() || {};
+  } catch {
+    /* non-JSON payload — show the generic fallback */
+  }
+  e.waitUntil(
+    self.registration.showNotification(data.title || "Michi", {
+      body: data.body || "Your focus block is done — take a break.",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: data.tag || "michi-focus", // a newer reminder replaces an unread older one
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(
+    (async () => {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (wins.length) {
+        return wins[0].focus();
+      }
+      return self.clients.openWindow("/");
+    })(),
+  );
+});
+
+// the browser can rotate a subscription (its endpoint changes); the server's stored
+// endpoint then goes stale and every push fails silently forever. Re-subscribe with
+// the current VAPID key and re-register, so notifications self-heal without the user
+// re-toggling them in Settings.
+function b64ToU8(base64) {
+  const pad = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+self.addEventListener("pushsubscriptionchange", (e) => {
+  e.waitUntil(
+    (async () => {
+      try {
+        const { key } = await (await fetch("/api/push/key")).json();
+        const sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: b64ToU8(key),
+        });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sub.toJSON()),
+        });
+      } catch {
+        /* best-effort self-heal — the user can re-enable in Settings if it fails */
+      }
+    })(),
+  );
+});
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(

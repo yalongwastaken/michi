@@ -17,6 +17,7 @@ import {
   Shell,
   ChevronDown,
   ChevronRight,
+  Bell,
 } from "lucide-react";
 import { Modal, Button, ConfirmButton, Field, Input, Select, Badge } from "../ui.jsx";
 import { api } from "../lib/api.js";
@@ -41,6 +42,133 @@ const THEMES = [
   { id: "light", label: "Light", icon: Sun },
   { id: "dark", label: "Dark", icon: Moon },
 ];
+
+// notifications need a secure origin + the installed service worker + Push support
+const pushSupported = () =>
+  typeof window !== "undefined" &&
+  window.isSecureContext &&
+  "serviceWorker" in navigator &&
+  "PushManager" in window &&
+  "Notification" in window;
+
+// base64url VAPID key → the Uint8Array applicationServerKey the browser wants
+function b64ToU8(base64) {
+  const pad = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+// Settings section: enable/disable Focus-block push reminders for THIS device.
+// Mirrors tsumiki's opt-in — permission → subscribe → the server pushes when a
+// running focus block ends (see server/focus.js).
+function NotificationsSection() {
+  const [status, setStatus] = useState("loading"); // loading|unsupported|off|on|busy
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      if (!pushSupported()) {
+        setStatus("unsupported");
+        return;
+      }
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = await reg?.pushManager?.getSubscription();
+        setStatus(sub ? "on" : "off");
+      } catch {
+        setStatus("off");
+      }
+    })();
+  }, []);
+
+  async function enable() {
+    setStatus("busy");
+    setErr("");
+    try {
+      if ((await Notification.requestPermission()) !== "granted") {
+        throw new Error("Notifications were blocked — allow them in your browser settings.");
+      }
+      // getRegistration (not .ready): .ready never resolves with no SW registered
+      // (dev mode / a failed registration) and would hang this button forever
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        throw new Error("No service worker here — use the installed app (production build).");
+      }
+      const { key } = await api.push.key();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64ToU8(key),
+      });
+      try {
+        await api.push.subscribe(sub.toJSON());
+      } catch (e) {
+        // the browser subscribed but the server didn't store it — roll back so the
+        // device doesn't show "On" while no push will ever arrive
+        await sub.unsubscribe().catch(() => {});
+        throw e;
+      }
+      setStatus("on");
+    } catch (e) {
+      setErr(String(e.message || e));
+      setStatus("off");
+    }
+  }
+
+  async function disable() {
+    setStatus("busy");
+    setErr("");
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager?.getSubscription();
+      if (sub) {
+        await api.push.unsubscribe(sub.endpoint);
+        await sub.unsubscribe();
+      }
+      setStatus("off");
+    } catch (e) {
+      setErr(String(e.message || e));
+      setStatus("on");
+    }
+  }
+
+  return (
+    <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+      <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+        <Bell size={15} className="text-iris-500 dark:text-iris-300" /> Notifications
+      </p>
+      <p className="mb-3 text-xs text-slate-400">
+        A push when a Focus block or break ends — even with the app in the background. Per device.
+      </p>
+      {status === "unsupported" ? (
+        <p className="text-xs text-slate-400">
+          Not available here — notifications need a secure address (your Tailscale HTTPS name or{" "}
+          <span className="font-mono">localhost</span>) and the installed app (PWA).
+        </p>
+      ) : (
+        <Button
+          variant={status === "on" ? "ghost" : "primary"}
+          onClick={status === "on" ? disable : enable}
+          disabled={status === "loading" || status === "busy"}
+          className="w-full"
+        >
+          {status === "busy" || status === "loading"
+            ? "…"
+            : status === "on"
+              ? "Turn off on this device"
+              : "Enable notifications on this device"}
+        </Button>
+      )}
+      {status === "on" ? (
+        <p className="mt-2 text-xs text-trail-700 dark:text-trail-400">On for this device.</p>
+      ) : null}
+      {err ? (
+        <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">
+          {err}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export default function Settings({ ctx, onClose }) {
   const { state, save, refresh, busy, trashRestore, trashPurge, trashEmpty } = ctx;
@@ -399,6 +527,8 @@ export default function Settings({ ctx, onClose }) {
         </p>
         <PlanWithClaude ctx={ctx} />
       </div>
+
+      <NotificationsSection />
 
       <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
         <div className="mb-2 flex items-center justify-between">

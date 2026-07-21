@@ -42,11 +42,20 @@ test("parseChoice returns null on junk or no valid keys", () => {
   assert.equal(parseChoice('{"items":["bad"]}', new Set(["a"])), null);
 });
 
-test("refinePlan returns the draft untouched when disabled", async () => {
+test("aiEnabled defaults ON when MICHI_LLM is unset", () => {
   delete process.env.MICHI_LLM;
+  assert.equal(aiEnabled(), true);
+  process.env.MICHI_LLM = "off";
+  assert.equal(aiEnabled(), false);
+  delete process.env.MICHI_LLM;
+});
+
+test("refinePlan returns the draft untouched when disabled", async () => {
+  process.env.MICHI_LLM = "0"; // explicit off — the model layer is on by default now
   assert.equal(aiEnabled(), false);
   const out = await refinePlan(sampleState(), draft, {});
   assert.equal(out, draft);
+  delete process.env.MICHI_LLM;
 });
 
 test("refinePlan uses the model's choice when enabled", async () => {

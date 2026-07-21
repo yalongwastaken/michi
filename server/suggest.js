@@ -14,9 +14,11 @@ import { recurringDueToday } from "./engine.js";
 import { localDay } from "./dates.js";
 import { stepLine, taskLine } from "./project.js";
 
-/** Is the optional model layer turned on? */
+/** Is the local model layer turned on? On by default — only an explicit off value
+ * (0/false/off/no) disables it. Calls still fail gracefully when Ollama is down,
+ * so "on" without a running model just falls back to the deterministic paths. */
 export function aiEnabled() {
-  return /^(1|true|on|yes)$/i.test(String(process.env.MICHI_LLM || ""));
+  return !/^(0|false|off|no)$/i.test(String(process.env.MICHI_LLM ?? "").trim());
 }
 
 export function aiConfig() {

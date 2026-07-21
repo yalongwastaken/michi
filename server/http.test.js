@@ -538,21 +538,15 @@ test("kata: honor happy path + guards, and the today/dashboard/momentum blocks",
   assert.equal((await (await api("/api/momentum")).json()).xp.todayM, 5);
 });
 
-test("kata: the ≤5-active rule holds over PUT and sync apply alike", async () => {
-  const five = Array.from({ length: 5 }, (_, i) => ({ id: `F${i}`, title: `form ${i}` }));
-  const bad = await send("PUT", "/api/state", {
-    kata: [...five, { id: "F6", title: "one too many" }],
+test("kata: any number of active kata is accepted over PUT and sync apply alike", async () => {
+  const six = Array.from({ length: 6 }, (_, i) => ({ id: `F${i}`, title: `form ${i}` }));
+  assert.equal((await send("PUT", "/api/state", { kata: six })).status, 200);
+  // sync: activating a seventh is fine now — no cap to reject it
+  const res = await send("POST", "/api/sync/apply", {
+    markdown: "## Kata\n- [x] a seventh form\n",
   });
-  assert.equal(bad.status, 400);
-  assert.match((await bad.json()).error, /at most 5 kata/);
-  assert.equal((await send("PUT", "/api/state", { kata: five })).status, 200);
-  // sync: activating a sixth is a clean 400, a retired sixth lands fine
-  const res = await send("POST", "/api/sync/apply", { markdown: "## Kata\n- [x] a sixth form\n" });
-  assert.equal(res.status, 400);
-  assert.match((await res.json()).error, /at most 5 kata/);
-  const ok = await send("POST", "/api/sync/apply", { markdown: "## Kata\n- [ ] a sixth form\n" });
-  assert.equal(ok.status, 200);
-  assert.equal((await ok.json()).applied.createdCounts.kata, 1);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).applied.createdCounts.kata, 1);
 });
 
 test("kata: a delete-by-absence is trashed and restorable over HTTP", async () => {
