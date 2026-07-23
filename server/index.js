@@ -40,6 +40,13 @@ import { aiConfig, refinePlan } from "./suggest.js";
 import { listBackups, runBackup, backupDir } from "./backup.js";
 import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
 import {
+  renderWeekExport,
+  parseWeekPlan,
+  previewWeekPlan,
+  applyWeekPlan,
+  hasWeekPlan,
+} from "./weekplan.js";
+import {
   vapidKeys,
   addSubscription,
   removeSubscription,
@@ -473,6 +480,55 @@ app.post("/api/sync/apply", (req, res) => {
   } catch (e) {
     console.warn("POST /api/sync/apply failed:", e.message);
     res.status(400).json({ error: e.message || "sync failed" });
+  }
+});
+
+// ── the WEEK-planning round-trip (overarching weekly schedule) ──────────────────
+// A dedicated copy-prompt → paste → preview → apply flow, separate from the item
+// sync above. Applying REPLACES the chosen week's plans wholesale (see weekplan.js).
+app.get("/api/week/export.md", (req, res) => {
+  const weekStart = resolveDay(req.query.weekStart);
+  res.setHeader("Content-Disposition", `attachment; filename="michi-week-${weekStart}.md"`);
+  res.type("text/markdown").send(renderWeekExport(getFullState(), { weekStart }));
+});
+
+// shared guard: a parsed week doc, or null after a 400 was sent
+function parseWeekBody(req, res) {
+  const md = req.body?.markdown;
+  if (typeof md !== "string" || !md.trim()) {
+    res.status(400).json({ error: "markdown is required" });
+    return null;
+  }
+  const parsed = parseWeekPlan(md, getFullState());
+  if (!hasWeekPlan(parsed)) {
+    res
+      .status(400)
+      .json({ error: "no week plan found in that markdown", warnings: parsed.warnings });
+    return null;
+  }
+  return parsed;
+}
+
+app.post("/api/week/sync/preview", (req, res) => {
+  const parsed = parseWeekBody(req, res);
+  if (!parsed) {
+    return;
+  }
+  res.json(previewWeekPlan(parsed));
+});
+
+app.post("/api/week/sync/apply", (req, res) => {
+  const parsed = parseWeekBody(req, res);
+  if (!parsed) {
+    return;
+  }
+  try {
+    const weekStart = resolveDay(req.body?.weekStart);
+    const { state, applied, warnings } = applyWeekPlan(req.body.markdown, { weekStart });
+    res.json({ state, applied, warnings });
+  } catch (e) {
+    console.warn("POST /api/week/sync/apply failed:", e.message);
+    res.status(400).json({ error: e.message || "week sync failed" });
   }
 });
 

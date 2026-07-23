@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Copy, CalendarRange, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Pencil,
+  Copy,
+  CalendarRange,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   Card,
   Button,
@@ -15,6 +24,7 @@ import {
 import { uid } from "../lib/uid.js";
 import { todayKey, addDays } from "../lib/format.js";
 import { weekStartOf, weekdayKeyOf, weekDays, weekLabel, WEEKDAYS } from "../lib/week.js";
+import PlanWeekWithClaude from "./PlanWeekWithClaude.jsx";
 
 // one area's plan for the week: theme, a day-split grid, and a targets checklist
 function PlanCard({ ctx, plan, weekStart, today }) {
@@ -348,6 +358,7 @@ export default function WeekPlan({ ctx }) {
   const today = ctx.day || todayKey();
   const [weekStart, setWeekStart] = useState(weekStartOf(today));
   const [adding, setAdding] = useState(false);
+  const [planning, setPlanning] = useState(false); // the Claude round-trip panel
 
   const all = ctx.state?.weekPlans || [];
   const plans = all
@@ -394,6 +405,27 @@ export default function WeekPlan({ ctx }) {
           <Plus size={18} />
         </IconButton>
       </div>
+
+      <Card className="p-3">
+        <button
+          type="button"
+          onClick={() => setPlanning((v) => !v)}
+          aria-expanded={planning}
+          className="flex w-full items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200"
+        >
+          <Sparkles size={15} className="text-iris-500" />
+          Plan this week with Claude
+          <ChevronRight
+            size={16}
+            className={`ml-auto text-slate-400 transition-transform ${planning ? "rotate-90" : ""}`}
+          />
+        </button>
+        {planning ? (
+          <div className="mt-3">
+            <PlanWeekWithClaude ctx={ctx} weekStart={weekStart} />
+          </div>
+        ) : null}
+      </Card>
 
       {plans.length === 0 ? (
         <EmptyState

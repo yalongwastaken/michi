@@ -107,6 +107,18 @@ export const api = {
     req("/api/sync/preview", { method: "POST", body: JSON.stringify({ markdown }) }),
   syncApply: (markdown) =>
     req("/api/sync/apply", { method: "POST", body: JSON.stringify({ markdown }) }),
+  // the WEEK-planning round-trip: export a week prompt, preview + apply a pasted reply
+  week: {
+    exportMd: (weekStart) =>
+      reqText(`/api/week/export.md?weekStart=${encodeURIComponent(weekStart)}`),
+    preview: (markdown) =>
+      req("/api/week/sync/preview", { method: "POST", body: JSON.stringify({ markdown }) }),
+    apply: (markdown, weekStart) =>
+      req("/api/week/sync/apply", {
+        method: "POST",
+        body: JSON.stringify({ markdown, weekStart }),
+      }),
+  },
   // daily journal / time log
   journal: {
     list: (from, to) =>
