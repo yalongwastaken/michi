@@ -3,6 +3,32 @@
 All notable changes to Michi are documented here. Versions follow
 [SemVer](https://semver.org).
 
+## [1.5.0] — 2026-07-22
+
+Two new layers above the daily plan: a **weekly schedule** you can draft with
+Claude, and **overarching goals** that turn finished work into visible progress.
+
+### Added
+
+- **Overarching goals** (Progress tab). Set a long-horizon aspiration — "climb
+  V10", "reach Japanese N1" — then attribute finished **tasks _and_ roadmap
+  steps** to it. Each goal shows a running progress feed (completions, active
+  days, a contribution strip) built from your history, so attribution is
+  retroactive: linking an item credits its whole past. Mark a goal **achieved**
+  for a small celebration.
+- **Week plans** (Plan → **Week**). The overarching weekly layer: one card per
+  focus area with a one-line theme, a Monday→Sunday **day split**, and a weekly
+  **targets** checklist. Browse week to week, with **copy last week** so a
+  repeating rhythm carries forward in one tap.
+- **Plan the week with Claude.** A dedicated copy-prompt → paste → preview →
+  apply round-trip (separate from the item sync) that drafts a whole week from
+  your goals and roadmaps; applying replaces that week's plan.
+- **"This week" on Today.** Today's slice of each area's day split, with a
+  one-tap **Refine** that breaks a day's focus into concrete tasks via the local
+  model (graceful fallback when it's off), attributed to the area's goal.
+- **Attribute work to a goal** from the goal card ("Add work" pulls in finished
+  tasks/steps) or the task editor's new "Toward a goal" field.
+
 ## [1.4.0] — 2026-07-14
 
 A new shape for the path. Momentum becomes home, the day gets a coach, and the
