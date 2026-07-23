@@ -1,18 +1,20 @@
 import { useState } from "react";
-import { Map as MapIcon, Hammer } from "lucide-react";
+import { Map as MapIcon, Hammer, CalendarRange } from "lucide-react";
 import Roadmaps from "./Roadmaps.jsx";
 import Projects from "./Projects.jsx";
+import WeekPlan from "./WeekPlan.jsx";
 
-// Plan folds the two "what am I building toward" views — roadmaps (learning paths)
-// and projects (things to ship) — behind one tab. A segmented control swaps between
-// them; each sub-view keeps its own header + New/Import actions untouched.
+// Plan folds the "what am I building toward" views — roadmaps (learning paths),
+// projects (things to ship), and the week (the overarching weekly schedule) — behind
+// one tab. A segmented control swaps between them; each keeps its own header/actions.
 const SUBS = [
+  { id: "week", label: "Week", icon: CalendarRange },
   { id: "roadmaps", label: "Roadmaps", icon: MapIcon },
   { id: "projects", label: "Projects", icon: Hammer },
 ];
 
 export default function Plan({ ctx }) {
-  const [sub, setSub] = useState("roadmaps");
+  const [sub, setSub] = useState("week");
   return (
     <div className="space-y-4">
       <div
@@ -40,7 +42,13 @@ export default function Plan({ ctx }) {
         })}
       </div>
 
-      {sub === "roadmaps" ? <Roadmaps ctx={ctx} /> : <Projects ctx={ctx} />}
+      {sub === "week" ? (
+        <WeekPlan ctx={ctx} />
+      ) : sub === "roadmaps" ? (
+        <Roadmaps ctx={ctx} />
+      ) : (
+        <Projects ctx={ctx} />
+      )}
     </div>
   );
 }
