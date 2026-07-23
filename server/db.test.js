@@ -981,3 +981,161 @@ test("activity summary: import / restore / reset invalidate the cache wholesale"
   assert.equal(a.byDay.size, 0);
   assert.deepEqual(a.totals, { tasks: 0, steps: 0, kata: 0 });
 });
+
+// ── overarching goals + week plans (the weekly-schedule feature) ────────────────
+test("goals + week plans round-trip the full-state PUT", () => {
+  db.resetAll();
+  const s = db.putState({
+    goals: [
+      { id: "g1", title: "Climb V10", area: "Climbing", status: "active", position: 0 },
+      { id: "g2", title: "Japanese N1", area: "Japanese", status: "achieved" },
+    ],
+    weekPlans: [
+      {
+        id: "w1",
+        weekStart: "2026-07-20",
+        area: "Japanese",
+        theme: "consolidate ch.3",
+        goalId: "g2",
+        targets: [{ text: "20 kanji", done: false }],
+        days: { mon: { focus: "grammar", minutes: 30 }, tue: { focus: "vocab" } },
+      },
+    ],
+  });
+  assert.equal(s.goals.length, 2);
+  assert.equal(s.goals[0].title, "Climb V10");
+  assert.equal(s.goals[1].status, "achieved");
+  assert.equal(s.weekPlans.length, 1);
+  assert.equal(s.weekPlans[0].goalId, "g2");
+  assert.deepEqual(s.weekPlans[0].targets, [{ text: "20 kanji", done: false }]);
+  assert.equal(s.weekPlans[0].days.mon.minutes, 30);
+  // history export carries them too
+  assert.equal(db.getFullState().goals.length, 2);
+});
+
+test("task + step goalId attribution round-trips; dangling links are nulled", () => {
+  db.resetAll();
+  const s = db.putState({
+    roadmaps: [{ id: "rm", title: "JP" }],
+    milestones: [{ id: "m", roadmapId: "rm", title: "N5" }],
+    steps: [
+      { id: "st1", milestoneId: "m", title: "hiragana", goalId: "g2" },
+      { id: "st2", milestoneId: "m", title: "katakana", goalId: "ghost" },
+    ],
+    goals: [{ id: "g2", title: "Japanese N1" }],
+    tasks: [
+      { id: "t1", title: "flashcards", goalId: "g2" },
+      { id: "t2", title: "orphan", goalId: "ghost" },
+    ],
+  });
+  assert.equal(s.steps.find((x) => x.id === "st1").goalId, "g2");
+  assert.equal(s.steps.find((x) => x.id === "st2").goalId, null); // dangling → nulled
+  assert.equal(s.tasks.find((x) => x.id === "t1").goalId, "g2");
+  assert.equal(s.tasks.find((x) => x.id === "t2").goalId, null);
+});
+
+test("validateState names goal + week-plan shape problems", () => {
+  assert.ok(db.validateState({ goals: [{ id: "g" }] })); // no title
+  assert.ok(db.validateState({ goals: [{ id: "g", title: "x", status: "won" }] }));
+  assert.ok(db.validateState({ goals: "nope" }));
+  assert.ok(db.validateState({ weekPlans: [{ id: "w", area: "JP" }] })); // no weekStart
+  assert.ok(db.validateState({ weekPlans: [{ id: "w", weekStart: "2026-02-30", area: "x" }] }));
+  assert.ok(db.validateState({ weekPlans: [{ id: "w", weekStart: "2026-07-20" }] })); // no area
+  assert.ok(
+    db.validateState({
+      weekPlans: [{ id: "w", weekStart: "2026-07-20", area: "x", days: { xday: {} } }],
+    }),
+  );
+  assert.ok(
+    db.validateState({
+      weekPlans: [{ id: "w", weekStart: "2026-07-20", area: "x", targets: "nope" }],
+    }),
+  );
+  assert.equal(
+    db.validateState({
+      goals: [{ id: "g", title: "V10" }],
+      weekPlans: [{ id: "w", weekStart: "2026-07-20", area: "x", days: { mon: { focus: "y" } } }],
+    }),
+    null,
+  );
+});
+
+test("validateState names a duplicate goal / week-plan id", () => {
+  assert.ok(
+    db
+      .validateState({
+        goals: [
+          { id: "dup", title: "a" },
+          { id: "dup", title: "b" },
+        ],
+      })
+      .includes("duplicate goal"),
+  );
+  assert.ok(
+    db
+      .validateState({
+        weekPlans: [
+          { id: "dup", weekStart: "2026-07-20", area: "a" },
+          { id: "dup", weekStart: "2026-07-27", area: "b" },
+        ],
+      })
+      .includes("duplicate week plan"),
+  );
+});
+
+test("a goal vanishing from a PUT is trashed; restore re-stitches attributions", () => {
+  db.resetAll();
+  db.putState({
+    goals: [{ id: "g", title: "Climb V10" }],
+    tasks: [{ id: "t", title: "session", goalId: "g" }],
+    roadmaps: [{ id: "rm", title: "C" }],
+    milestones: [{ id: "m", roadmapId: "rm", title: "base" }],
+    steps: [{ id: "st", milestoneId: "m", title: "footwork", goalId: "g" }],
+  });
+  // drop the goal (keep the task + step); their goal_id gets nulled by replaceAll
+  const cur = db.getState();
+  const s = db.putState({ ...cur, goals: [] }, cur.rev);
+  assert.equal(s.tasks[0].goalId, null);
+  assert.equal(s.steps[0].goalId, null);
+  const row = db.listTrash().find((r) => r.kind === "goal");
+  assert.ok(row, "goal was snapshotted into trash");
+  const { state } = db.restoreTrash(row.id);
+  const goal = state.goals.find((g) => g.title === "Climb V10");
+  assert.ok(goal, "goal restored");
+  // the attribution is stitched back onto the surviving task + step
+  assert.equal(state.tasks[0].goalId, goal.id);
+  assert.equal(state.steps[0].goalId, goal.id);
+});
+
+test("a week plan vanishing from a PUT is trashed and restores intact", () => {
+  db.resetAll();
+  db.putState({
+    weekPlans: [
+      {
+        id: "w",
+        weekStart: "2026-07-20",
+        area: "Japanese",
+        targets: [{ text: "ch.3", done: true }],
+        days: { wed: { focus: "listening", minutes: 45 } },
+      },
+    ],
+  });
+  const cur = db.getState();
+  db.putState({ ...cur, weekPlans: [] }, cur.rev);
+  const row = db.listTrash().find((r) => r.kind === "weekPlan");
+  assert.ok(row, "week plan snapshotted into trash");
+  const { state } = db.restoreTrash(row.id);
+  assert.equal(state.weekPlans.length, 1);
+  assert.deepEqual(state.weekPlans[0].targets, [{ text: "ch.3", done: true }]);
+  assert.equal(state.weekPlans[0].days.wed.minutes, 45);
+});
+
+test("resetAll clears goals and week plans too", () => {
+  db.putState({
+    goals: [{ id: "g", title: "x" }],
+    weekPlans: [{ id: "w", weekStart: "2026-07-20", area: "x" }],
+  });
+  const s = db.resetAll();
+  assert.deepEqual(s.goals, []);
+  assert.deepEqual(s.weekPlans, []);
+});

@@ -48,7 +48,10 @@ db.exec(`
     position     INTEGER NOT NULL DEFAULT 0,
     resource_url TEXT,
     notes        TEXT,
-    done_at      TEXT                            -- ISO timestamp when marked done
+    done_at      TEXT,                           -- ISO timestamp when marked done
+    goal_id      TEXT                            -- optional attribution to an overarching
+                                                 -- goal (no FK: a soft, forgiving link —
+                                                 -- replaceAll nulls it if the goal is gone)
   );
 
   -- a meaningful thing to build/ship (the point of the learning)
@@ -80,7 +83,10 @@ db.exec(`
     position    INTEGER NOT NULL DEFAULT 0,
     notes       TEXT,
     created_at  TEXT NOT NULL,
-    done_at     TEXT                             -- ISO timestamp when last completed
+    done_at     TEXT,                            -- ISO timestamp when last completed
+    goal_id     TEXT                             -- optional attribution to an overarching
+                                                 -- goal (no FK: a soft, forgiving link —
+                                                 -- replaceAll nulls it if the goal is gone)
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
@@ -146,6 +152,42 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_journal_day ON journal(day);
 
+  -- overarching goals: the long-horizon aspirations that sit ABOVE roadmaps and
+  -- week plans ("climb V10", "Japanese N1"). You set one, then attribute completed
+  -- tasks/steps to it (tasks.goal_id / steps.goal_id) so the accumulated work reads
+  -- as steady progress. Part of the editable model (rides the everyday PUT), so no
+  -- FK from the linked items back to here — replaceAll nulls dangling goal_ids.
+  CREATE TABLE IF NOT EXISTS goals (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    area        TEXT,                            -- optional grouping ("Japanese", "Climbing")
+    note        TEXT,
+    color       TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',  -- active | achieved
+    position    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    achieved_at TEXT                             -- ISO timestamp when marked achieved
+  );
+
+  -- week plans: the overarching weekly layer between goals and the daily plan. One
+  -- row per focus area per week — weekly targets (a checklist) plus a per-weekday
+  -- split of intent. Claude drafts these (server/weekplan.js), then a day's slice is
+  -- refined into concrete tasks. Soft links to a roadmap/goal (no FK; nulled if gone).
+  CREATE TABLE IF NOT EXISTS week_plans (
+    id          TEXT PRIMARY KEY,
+    week_start  TEXT NOT NULL,                   -- the Monday it covers (local YYYY-MM-DD)
+    area        TEXT NOT NULL,                   -- focus area label ("Japanese", "Climbing")
+    title       TEXT,                            -- optional display title
+    theme       TEXT,                            -- one calm line of intent for the week
+    roadmap_id  TEXT,                            -- optional soft link to a roadmap
+    goal_id     TEXT,                            -- optional soft link to an overarching goal
+    targets     TEXT NOT NULL DEFAULT '[]',      -- JSON: [{ text, done }]
+    days        TEXT NOT NULL DEFAULT '{}',      -- JSON: { mon: { focus, minutes }, … }
+    position    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_week_plans_start ON week_plans(week_start);
+
   -- flexible JSON blobs for the evolving profile + settings + rev
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -159,7 +201,7 @@ db.exec(`
   -- it's a recovery net, not state (see getFullState).
   CREATE TABLE IF NOT EXISTS trash (
     id         TEXT PRIMARY KEY,                 -- tr_-prefixed uid
-    kind       TEXT NOT NULL,                    -- roadmap | step | project | task | kata
+    kind       TEXT NOT NULL,                    -- roadmap | step | project | task | kata | goal | weekPlan
     title      TEXT NOT NULL,                    -- for the trash listing
     payload    TEXT NOT NULL,                    -- JSON snapshot (getState shapes)
     deleted_at TEXT NOT NULL                     -- ISO timestamp, drives retention
@@ -188,6 +230,17 @@ db.exec(`
     .map((c) => c.name);
   if (!cols.includes("roadmap_id")) {
     db.exec("ALTER TABLE projects ADD COLUMN roadmap_id TEXT");
+  }
+}
+
+// migrate older DBs that predate the overarching-goal attribution links
+for (const table of ["tasks", "steps"]) {
+  const cols = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((c) => c.name);
+  if (!cols.includes("goal_id")) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN goal_id TEXT`);
   }
 }
 
@@ -248,8 +301,11 @@ function isValidDay(s) {
 const STEP_STATUS = new Set(["todo", "doing", "done"]);
 const TASK_STATUS = new Set(["todo", "doing", "done"]);
 const PROJECT_STATUS = new Set(["idea", "active", "shipped"]);
+const GOAL_STATUS = new Set(["active", "achieved"]);
 const RECURRENCE = new Set(["daily", "weekdays", "weekly"]);
 const COMPLETION_KINDS = new Set(["task", "step", "kata"]);
+// the seven weekday keys a week plan's day-split may carry (Mon-first, local week)
+const WEEKDAY_KEYS = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 
 // sane bounds for the numeric settings — a huge/Infinity streakFreezes would make
 // computeStreak() walk back day-by-day (nearly) forever and wedge the event loop
@@ -335,6 +391,8 @@ export function validateState(s) {
     "projects",
     "tasks",
     "kata",
+    "goals",
+    "weekPlans",
     "completions",
     "kataDays",
     "journal",
@@ -403,6 +461,36 @@ export function validateState(s) {
       return "kata.active must be a boolean";
     }
   }
+  for (const g of s.goals || []) {
+    if (!g?.id || !g?.title) {
+      return "goal needs an id and title";
+    }
+    if (g.status != null && !GOAL_STATUS.has(g.status)) {
+      return `bad goal status: ${g.status}`;
+    }
+  }
+  for (const w of s.weekPlans || []) {
+    if (!w?.id) {
+      return "week plan needs an id";
+    }
+    if (!isValidDay(w.weekStart)) {
+      return "week plan needs a valid weekStart (YYYY-MM-DD)";
+    }
+    if (!w.area || !String(w.area).trim()) {
+      return "week plan needs an area";
+    }
+    if (w.targets != null && !Array.isArray(w.targets)) {
+      return "week plan targets must be an array";
+    }
+    if (w.days != null && (typeof w.days !== "object" || Array.isArray(w.days))) {
+      return "week plan days must be an object keyed by weekday";
+    }
+    for (const key of Object.keys(w.days || {})) {
+      if (!WEEKDAY_KEYS.has(key)) {
+        return `bad week plan day key: ${key}`;
+      }
+    }
+  }
   // kata_days rows only arrive via import — validate just enough that the
   // clean-day math can't be poisoned (a garbage day, non-array id lists)
   for (const kd of s.kataDays || []) {
@@ -447,6 +535,8 @@ export function validateState(s) {
     ["projects", "project"],
     ["tasks", "task"],
     ["kata", "kata"],
+    ["goals", "goal"],
+    ["weekPlans", "week plan"],
   ]) {
     const seen = new Set();
     for (const x of s[key] || []) {
@@ -591,7 +681,7 @@ export function getState() {
       .all(),
     steps: db
       .prepare(
-        "SELECT id, milestone_id AS milestoneId, title, status, position, resource_url AS resourceUrl, notes, done_at AS doneAt FROM steps ORDER BY position",
+        "SELECT id, milestone_id AS milestoneId, title, status, position, resource_url AS resourceUrl, notes, done_at AS doneAt, goal_id AS goalId FROM steps ORDER BY position",
       )
       .all(),
     projects: db
@@ -601,7 +691,7 @@ export function getState() {
       .all(),
     tasks: db
       .prepare(
-        "SELECT id, title, status, due, recurrence, step_id AS stepId, project_id AS projectId, est_min AS estMin, position, notes, created_at AS createdAt, done_at AS doneAt FROM tasks ORDER BY position, created_at",
+        "SELECT id, title, status, due, recurrence, step_id AS stepId, project_id AS projectId, est_min AS estMin, position, notes, created_at AS createdAt, done_at AS doneAt, goal_id AS goalId FROM tasks ORDER BY position, created_at",
       )
       .all(),
     kata: db
@@ -610,9 +700,43 @@ export function getState() {
       )
       .all()
       .map((k) => ({ ...k, active: !!k.active })),
+    goals: db
+      .prepare(
+        "SELECT id, title, area, note, color, status, position, created_at AS createdAt, achieved_at AS achievedAt FROM goals ORDER BY position, created_at",
+      )
+      .all(),
+    weekPlans: db
+      .prepare(
+        "SELECT id, week_start AS weekStart, area, title, theme, roadmap_id AS roadmapId, goal_id AS goalId, targets, days, position, created_at AS createdAt FROM week_plans ORDER BY week_start DESC, position, created_at",
+      )
+      .all()
+      .map((w) => ({
+        ...w,
+        targets: parseJsonArr(w.targets),
+        days: parseJsonObj(w.days),
+      })),
     profile: getMeta("profile", DEFAULT_PROFILE),
     settings: getMeta("settings", DEFAULT_SETTINGS),
   };
+}
+
+// week-plan JSON columns come out of SQLite as strings; parse defensively so one
+// corrupt row can't throw the whole getState (→ every read + write response)
+function parseJsonArr(s) {
+  try {
+    const v = JSON.parse(s ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+function parseJsonObj(s) {
+  try {
+    const v = JSON.parse(s ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
 }
 
 /** The whole append-only completion log, oldest first. */
@@ -826,6 +950,7 @@ function pickTask(t, nowIso) {
     notes: t.notes ?? null,
     createdAt: t.createdAt ?? nowIso,
     doneAt: t.doneAt ?? null,
+    goalId: t.goalId ?? null,
   };
 }
 
@@ -837,8 +962,8 @@ export function addTask(t) {
   db.exec("BEGIN");
   try {
     db.prepare(
-      `INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at)
-       VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt)`,
+      `INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at,goal_id)
+       VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt,@goalId)`,
     ).run(pickTask(t, new Date().toISOString()));
     bumpRev();
     db.exec("COMMIT");
@@ -1057,6 +1182,8 @@ function replaceAll(state) {
   db.prepare("DELETE FROM roadmaps").run();
   db.prepare("DELETE FROM projects").run();
   db.prepare("DELETE FROM kata").run(); // kata_days stays — it's history, like completions
+  db.prepare("DELETE FROM week_plans").run();
+  db.prepare("DELETE FROM goals").run();
 
   const ins = {
     roadmap: db.prepare(
@@ -1066,22 +1193,31 @@ function replaceAll(state) {
       "INSERT INTO milestones(id,roadmap_id,title,position) VALUES(@id,@roadmapId,@title,@position)",
     ),
     step: db.prepare(
-      "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at) VALUES(@id,@milestoneId,@title,@status,@position,@resourceUrl,@notes,@doneAt)",
+      "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at,goal_id) VALUES(@id,@milestoneId,@title,@status,@position,@resourceUrl,@notes,@doneAt,@goalId)",
     ),
     project: db.prepare(
       "INSERT INTO projects(id,title,status,repo_url,summary,position,created_at,shipped_at,roadmap_id) VALUES(@id,@title,@status,@repoUrl,@summary,@position,@createdAt,@shippedAt,@roadmapId)",
     ),
     task: db.prepare(
-      "INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at) VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt)",
+      "INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at,goal_id) VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt,@goalId)",
     ),
     kata: db.prepare(
       "INSERT INTO kata(id,title,note,builtin_id,active,position,created_at) VALUES(@id,@title,@note,@builtinId,@active,@position,@createdAt)",
+    ),
+    goal: db.prepare(
+      "INSERT INTO goals(id,title,area,note,color,status,position,created_at,achieved_at) VALUES(@id,@title,@area,@note,@color,@status,@position,@createdAt,@achievedAt)",
+    ),
+    weekPlan: db.prepare(
+      "INSERT INTO week_plans(id,week_start,area,title,theme,roadmap_id,goal_id,targets,days,position,created_at) VALUES(@id,@weekStart,@area,@title,@theme,@roadmapId,@goalId,@targets,@days,@position,@createdAt)",
     ),
   };
 
   // pick-lists throughout (see pickTask): unknown extra keys must be stripped,
   // never handed to the SQL layer where they throw generic bind errors
   const nowIso = new Date().toISOString();
+  // goal_id on tasks/steps is a soft, forgiving link (no FK) — a reference to a
+  // goal absent from this state is nulled, exactly like project → roadmap below
+  const goalIds = new Set((state.goals || []).map((g) => g.id));
   for (const r of state.roadmaps || []) {
     ins.roadmap.run({
       id: r.id,
@@ -1113,6 +1249,7 @@ function replaceAll(state) {
       resourceUrl: s.resourceUrl ?? null,
       notes: s.notes ?? null,
       doneAt: s.doneAt ?? null,
+      goalId: s.goalId != null && goalIds.has(s.goalId) ? s.goalId : null,
     });
   }
   // the SET-NULL that tasks' step FK promises but a full delete+reinsert never
@@ -1133,7 +1270,9 @@ function replaceAll(state) {
     });
   }
   for (const t of state.tasks || []) {
-    ins.task.run(pickTask(t, nowIso));
+    const row = pickTask(t, nowIso);
+    row.goalId = row.goalId != null && goalIds.has(row.goalId) ? row.goalId : null;
+    ins.task.run(row);
   }
   for (const k of state.kata || []) {
     ins.kata.run({
@@ -1145,6 +1284,35 @@ function replaceAll(state) {
       active: k.active === false || k.active === 0 ? 0 : 1,
       position: k.position ?? 0,
       createdAt: k.createdAt ?? nowIso,
+    });
+  }
+  for (const g of state.goals || []) {
+    ins.goal.run({
+      id: g.id,
+      title: g.title,
+      area: g.area ?? null,
+      note: g.note ?? null,
+      color: g.color ?? null,
+      status: GOAL_STATUS.has(g.status) ? g.status : "active",
+      position: g.position ?? 0,
+      createdAt: g.createdAt ?? nowIso,
+      achievedAt: g.achievedAt ?? null,
+    });
+  }
+  for (const w of state.weekPlans || []) {
+    ins.weekPlan.run({
+      id: w.id,
+      weekStart: w.weekStart,
+      area: w.area,
+      title: w.title ?? null,
+      theme: w.theme ?? null,
+      // soft links, nulled if their target isn't in this state (see goalIds above)
+      roadmapId: w.roadmapId != null && roadmapIds.has(w.roadmapId) ? w.roadmapId : null,
+      goalId: w.goalId != null && goalIds.has(w.goalId) ? w.goalId : null,
+      targets: JSON.stringify(Array.isArray(w.targets) ? w.targets : []),
+      days: JSON.stringify(w.days && typeof w.days === "object" ? w.days : {}),
+      position: w.position ?? 0,
+      createdAt: w.createdAt ?? nowIso,
     });
   }
 
@@ -1207,6 +1375,8 @@ function trashDeleted(next, now = new Date().toISOString()) {
     projects: new Set((next.projects || []).map((p) => p.id)),
     tasks: new Set((next.tasks || []).map((t) => t.id)),
     kata: new Set((next.kata || []).map((k) => k.id)),
+    goals: new Set((next.goals || []).map((g) => g.id)),
+    weekPlans: new Set((next.weekPlans || []).map((w) => w.id)),
   };
   const old = getState();
   const inRoadmapRow = new Set(); // step ids already leaving inside a subtree row
@@ -1261,6 +1431,24 @@ function trashDeleted(next, now = new Date().toISOString()) {
   for (const k of old.kata) {
     if (!keep.kata.has(k.id)) {
       put("kata", k.title, { kata: k }); // its honor history (kata_days) stays put
+    }
+  }
+  // a goal takes the inbound attributions along (which tasks/steps pointed at it),
+  // read from the OLD state before replaceAll nulls them, so a restore can re-stitch
+  for (const g of old.goals) {
+    if (!keep.goals.has(g.id)) {
+      put("goal", g.title, {
+        goal: g,
+        links: {
+          tasks: old.tasks.filter((t) => t.goalId === g.id).map((t) => t.id),
+          steps: old.steps.filter((s) => s.goalId === g.id).map((s) => s.id),
+        },
+      });
+    }
+  }
+  for (const w of old.weekPlans) {
+    if (!keep.weekPlans.has(w.id)) {
+      put("weekPlan", w.title || w.area || "week plan", { weekPlan: w });
     }
   }
   if (trashed.length > 0) {
@@ -1320,6 +1508,8 @@ export function restoreTrash(id) {
   const project = snap.project ?? null;
   const task = snap.task ?? null;
   const kata = snap.kata ?? null;
+  const goal = snap.goal ?? null;
+  const weekPlan = snap.weekPlan ?? null;
   const links = snap.links || {};
 
   const exists = (table, xid) =>
@@ -1343,6 +1533,8 @@ export function restoreTrash(id) {
     ...(project ? [["projects", "proj", project]] : []),
     ...(task ? [["tasks", "task", task]] : []),
     ...(kata ? [["kata", "kata", kata]] : []),
+    ...(goal ? [["goals", "goal", goal]] : []),
+    ...(weekPlan ? [["week_plans", "wk", weekPlan]] : []),
   ];
   const remapped = owned.some(([table, , item]) => exists(table, item.id));
   const idMap = new Map();
@@ -1380,7 +1572,7 @@ export function restoreTrash(id) {
       }
       for (const s of steps) {
         db.prepare(
-          "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at) VALUES(?,?,?,?,?,?,?,?)",
+          "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at,goal_id) VALUES(?,?,?,?,?,?,?,?,?)",
         ).run(
           mapId(s.id),
           mapId(s.milestoneId),
@@ -1390,12 +1582,14 @@ export function restoreTrash(id) {
           s.resourceUrl ?? null,
           s.notes ?? null,
           s.doneAt ?? null,
+          // attribution is an outward soft link — the goal may be gone by now
+          exists("goals", s.goalId) ? s.goalId : null,
         );
       }
     }
     if (step) {
       db.prepare(
-        "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO steps(id,milestone_id,title,status,position,resource_url,notes,done_at,goal_id) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
         mapId(step.id),
         step.milestoneId, // outward ref — its existence was checked up front
@@ -1405,6 +1599,7 @@ export function restoreTrash(id) {
         step.resourceUrl ?? null,
         step.notes ?? null,
         step.doneAt ?? null,
+        exists("goals", step.goalId) ? step.goalId : null,
       );
     }
     if (project) {
@@ -1425,16 +1620,17 @@ export function restoreTrash(id) {
     }
     if (task) {
       db.prepare(
-        `INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at)
-         VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt)`,
+        `INSERT INTO tasks(id,title,status,due,recurrence,step_id,project_id,est_min,position,notes,created_at,done_at,goal_id)
+         VALUES(@id,@title,@status,@due,@recurrence,@stepId,@projectId,@estMin,@position,@notes,@createdAt,@doneAt,@goalId)`,
       ).run(
         pickTask(
           {
             ...task,
             id: mapId(task.id),
-            // outward refs — the linked step/project may be gone by now
+            // outward refs — the linked step/project/goal may be gone by now
             stepId: exists("steps", task.stepId) ? task.stepId : null,
             projectId: exists("projects", task.projectId) ? task.projectId : null,
+            goalId: exists("goals", task.goalId) ? task.goalId : null,
           },
           nowIso,
         ),
@@ -1454,6 +1650,39 @@ export function restoreTrash(id) {
         wantsActive ? 1 : 0,
         kata.position ?? 0,
         kata.createdAt ?? nowIso,
+      );
+    }
+    if (goal) {
+      db.prepare(
+        "INSERT INTO goals(id,title,area,note,color,status,position,created_at,achieved_at) VALUES(?,?,?,?,?,?,?,?,?)",
+      ).run(
+        mapId(goal.id),
+        goal.title,
+        goal.area ?? null,
+        goal.note ?? null,
+        goal.color ?? null,
+        GOAL_STATUS.has(goal.status) ? goal.status : "active",
+        goal.position ?? 0,
+        goal.createdAt ?? nowIso,
+        goal.achievedAt ?? null,
+      );
+    }
+    if (weekPlan) {
+      db.prepare(
+        "INSERT INTO week_plans(id,week_start,area,title,theme,roadmap_id,goal_id,targets,days,position,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      ).run(
+        mapId(weekPlan.id),
+        weekPlan.weekStart,
+        weekPlan.area,
+        weekPlan.title ?? null,
+        weekPlan.theme ?? null,
+        // outward soft links — the roadmap/goal may be gone by now
+        exists("roadmaps", weekPlan.roadmapId) ? weekPlan.roadmapId : null,
+        exists("goals", weekPlan.goalId) ? weekPlan.goalId : null,
+        JSON.stringify(Array.isArray(weekPlan.targets) ? weekPlan.targets : []),
+        JSON.stringify(weekPlan.days && typeof weekPlan.days === "object" ? weekPlan.days : {}),
+        weekPlan.position ?? 0,
+        weekPlan.createdAt ?? nowIso,
       );
     }
     // stitch severed inbound links back (recorded at trash time from the OLD
@@ -1488,6 +1717,20 @@ export function restoreTrash(id) {
         db.prepare("UPDATE tasks SET project_id = ? WHERE id = ? AND project_id IS NULL").run(
           mapId(project.id),
           tid,
+        );
+      }
+    }
+    if (goal) {
+      for (const tid of links.tasks || []) {
+        db.prepare("UPDATE tasks SET goal_id = ? WHERE id = ? AND goal_id IS NULL").run(
+          mapId(goal.id),
+          tid,
+        );
+      }
+      for (const sid of links.steps || []) {
+        db.prepare("UPDATE steps SET goal_id = ? WHERE id = ? AND goal_id IS NULL").run(
+          mapId(goal.id),
+          sid,
         );
       }
     }
@@ -1567,6 +1810,8 @@ export function resetAll() {
       "roadmaps",
       "projects",
       "kata",
+      "goals",
+      "week_plans",
       "kata_days",
       "completions",
       "journal",

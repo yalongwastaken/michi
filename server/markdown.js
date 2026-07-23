@@ -1086,6 +1086,10 @@ export function applySync(parsed) {
     projects: applyTo("project", state.projects, plan.creates.projects),
     tasks: applyTo("task", state.tasks, plan.creates.tasks),
     kata: applyTo("kata", state.kata, plan.creates.kata),
+    // goals + week plans aren't part of the item-sync grammar — carry them through
+    // untouched so a general sync never wipes them (their own round-trip owns them)
+    goals: state.goals,
+    weekPlans: state.weekPlans,
     profile: state.profile,
     settings: state.settings,
     completions: state.completions, // preserved as-is — sync never touches history
