@@ -34,6 +34,7 @@ import { dayKey } from "./dates.js";
 import { planDay } from "./planner.js";
 import { insights, kataSuggestions } from "./insights.js";
 import { weeklyReview } from "./review.js";
+import { goalProgress } from "./goals.js";
 import { buildDigest } from "./digest.js";
 import { aiConfig, refinePlan } from "./suggest.js";
 import { listBackups, runBackup, backupDir } from "./backup.js";
@@ -269,6 +270,8 @@ app.get("/api/dashboard", (req, res, next) => {
       kata: getKataToday(day),
       // library suggestions, rendered in the dōjō — deliberately not nudges
       kataSuggestions: kataSuggestions(state, { today: day }),
+      // per-goal progress rollups (Progress tab) — from the log, so attribution is retroactive
+      goalProgress: goalProgress(state, { today: day }),
     });
   } catch (e) {
     next(e);

@@ -51,3 +51,25 @@ export function deleteProject(s, projectId) {
 export function deleteTask(s, taskId) {
   s.tasks = (s.tasks || []).filter((t) => t.id !== taskId);
 }
+
+/** Delete an overarching goal; detach the tasks/steps attributed to it, and drop
+ * the soft link from any week plan. (The server nulls dangling goal_ids too, but
+ * clearing them here keeps the optimistic state honest before the PUT returns.) */
+export function deleteGoal(s, goalId) {
+  s.goals = (s.goals || []).filter((g) => g.id !== goalId);
+  for (const t of s.tasks || []) {
+    if (t.goalId === goalId) {
+      t.goalId = null;
+    }
+  }
+  for (const st of s.steps || []) {
+    if (st.goalId === goalId) {
+      st.goalId = null;
+    }
+  }
+  for (const w of s.weekPlans || []) {
+    if (w.goalId === goalId) {
+      w.goalId = null;
+    }
+  }
+}

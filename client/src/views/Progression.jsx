@@ -2,6 +2,7 @@ import { Milestone, Flame } from "lucide-react";
 import { Card, Badge, ProgressBar, EmptyState } from "../ui.jsx";
 import { formatMeters } from "../lib/format.js";
 import Mascot from "./Mascot.jsx";
+import Goals from "./Goals.jsx";
 
 // mirrors server/engine.js WAYPOINTS — the xp payload carries the *current* waypoint
 // name only, so the "next waypoint" caption resolves the following one client-side
@@ -272,6 +273,8 @@ export default function Progression({ ctx }) {
       ) : null}
 
       <BadgeRow milestones={m.milestones} />
+
+      <Goals ctx={ctx} />
 
       <div>
         <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">

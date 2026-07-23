@@ -118,6 +118,7 @@ export default function App({ onTheme }) {
   const [kataSuggestions, setKataSuggestions] = useState([]);
   const [nudges, setNudges] = useState([]);
   const [review, setReview] = useState(null);
+  const [goalProgress, setGoalProgress] = useState({}); // goalId → progress rollup
   const [aiEnabled, setAiEnabled] = useState(false);
   const [tab, setTab] = useState("home");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -178,6 +179,7 @@ export default function App({ onTheme }) {
     setKataSuggestions(resp.kataSuggestions || []);
     setNudges(resp.insights || []);
     setReview(resp.review || null);
+    setGoalProgress(resp.goalProgress || {});
   }, []);
 
   // re-run the planner; {ai:true} asks the local model, {budget} overrides the budget
@@ -546,6 +548,7 @@ export default function App({ onTheme }) {
     plan,
     nudges,
     review,
+    goalProgress,
     aiEnabled,
     replan,
     skipPlanItem,

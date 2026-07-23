@@ -26,10 +26,12 @@ export default function TaskModal({ ctx, task = null, onClose }) {
   const [estMin, setEstMin] = useState(task?.estMin != null ? String(task.estMin) : "");
   const [stepId, setStepId] = useState(task?.stepId || "");
   const [projectId, setProjectId] = useState(task?.projectId || "");
+  const [goalId, setGoalId] = useState(task?.goalId || "");
   const [notes, setNotes] = useState(task?.notes || "");
 
   const tree = roadmapTree(state);
   const projects = state.projects || [];
+  const goals = (state.goals || []).filter((g) => g.status !== "achieved");
 
   const fields = () => ({
     title: title.trim(),
@@ -38,6 +40,7 @@ export default function TaskModal({ ctx, task = null, onClose }) {
     estMin: estMin === "" ? null : Number(estMin),
     stepId: stepId || null,
     projectId: projectId || null,
+    goalId: goalId || null,
     notes: notes.trim() || null,
   });
 
@@ -167,6 +170,19 @@ export default function TaskModal({ ctx, task = null, onClose }) {
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+
+      {goals.length ? (
+        <Field label="Toward a goal" hint="Optional — credit this task to an overarching goal.">
+          <Select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
+            <option value="">None</option>
+            {goals.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.title}
               </option>
             ))}
           </Select>
