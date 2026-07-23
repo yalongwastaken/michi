@@ -257,3 +257,100 @@ export async function refinePlan(state, draft, opts = {}, deps = {}) {
     return draft; // unreachable / timeout / bad JSON → deterministic plan stands
   }
 }
+
+/**
+ * Break a week plan's day-focus (e.g. "vocab + listening") into a few concrete,
+ * addable tasks with the local model. Always resolves; on any failure returns a
+ * one-item fallback (the focus itself) so the user can still act. Never invents
+ * links — the caller attributes accepted tasks to the plan's goal.
+ * @returns {{tasks: Array<{title, estMin}>, source: "ai"|"fallback"}}
+ */
+export async function refineDay(focus, opts = {}, deps = {}) {
+  const text = String(focus || "").trim();
+  const taskDefaultMin = opts.taskDefaultMin || 25;
+  const fallback = {
+    tasks: text ? [{ title: text, estMin: taskDefaultMin }] : [],
+    source: "fallback",
+  };
+  if (!text || !aiEnabled()) {
+    return fallback;
+  }
+  const cfg = aiConfig();
+  const doFetch = deps.fetch || globalThis.fetch;
+
+  const system =
+    "You are Michi, a calm learning coach. Break the day's focus into 2–4 small, concrete, " +
+    "actionable tasks a person can start right away. Keep titles short and specific. Reply " +
+    'ONLY with JSON: {"tasks":[{"title":"…","estMin":25}, …]}. estMin is a positive integer of minutes.';
+  const user = JSON.stringify({ area: opts.area || null, focus: text, budgetMin: opts.budgetMin });
+
+  let endpoint;
+  try {
+    endpoint = new URL("/api/chat", cfg.url).toString();
+  } catch {
+    return fallback;
+  }
+
+  try {
+    const res = await doFetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: cfg.model,
+        stream: false,
+        format: "json",
+        options: { temperature: 0.3 },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+      signal: AbortSignal.timeout(opts.timeoutMs || 20000),
+    });
+    if (!res.ok) {
+      return fallback;
+    }
+    const data = await res.json();
+    const tasks = parseDayTasks(data?.message?.content, taskDefaultMin);
+    return tasks.length ? { tasks, source: "ai" } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Parse a refineDay reply into clean {title, estMin} rows (≤5). Forgiving. */
+export function parseDayTasks(textContent, taskDefaultMin = 25) {
+  if (!textContent) {
+    return [];
+  }
+  let obj = null;
+  try {
+    obj = JSON.parse(textContent);
+  } catch {
+    const m = String(textContent).match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        obj = JSON.parse(m[0]);
+      } catch {
+        return [];
+      }
+    }
+  }
+  const arr = Array.isArray(obj?.tasks) ? obj.tasks : [];
+  const out = [];
+  for (const t of arr) {
+    const title = typeof t?.title === "string" ? t.title.trim() : "";
+    if (!title) {
+      continue;
+    }
+    const n = Number(t.estMin);
+    out.push({
+      title: title.slice(0, 200),
+      estMin: Number.isFinite(n) && n > 0 ? Math.round(n) : taskDefaultMin,
+    });
+    if (out.length >= 5) {
+      break;
+    }
+  }
+  return out;
+}

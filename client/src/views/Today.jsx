@@ -31,6 +31,7 @@ import Dojo from "./Dojo.jsx";
 import Mascot from "./Mascot.jsx";
 import CoachBubble from "./CoachBubble.jsx";
 import PlanWithClaudeCard from "./PlanWithClaudeCard.jsx";
+import ThisWeek from "./ThisWeek.jsx";
 import SwipeRow from "./SwipeRow.jsx";
 
 // chips that explain why an item is in today's plan
@@ -680,6 +681,8 @@ export default function Today({ ctx }) {
         </div>
       ) : null}
       <Nudges items={topNudge ? ctx.nudges.slice(1) : ctx.nudges} />
+
+      <ThisWeek ctx={ctx} />
 
       <PlanTodayCard ctx={ctx} day={today.day} />
 

@@ -3,7 +3,14 @@
 process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCandidates, parseChoice, refinePlan, aiEnabled } from "./suggest.js";
+import {
+  buildCandidates,
+  parseChoice,
+  refinePlan,
+  refineDay,
+  parseDayTasks,
+  aiEnabled,
+} from "./suggest.js";
 
 function sampleState() {
   return {
@@ -127,4 +134,48 @@ test("refinePlan falls back to the draft when the model errors/times out", async
   const out = await refinePlan(sampleState(), draft, { today: "2026-06-23" }, { fetch: boom });
   assert.equal(out, draft);
   delete process.env.MICHI_LLM;
+});
+
+test("parseDayTasks: forgiving parse, clean rows, capped at 5", () => {
+  const good = parseDayTasks('{"tasks":[{"title":"warm up","estMin":10},{"title":"drills"}]}');
+  assert.deepEqual(good, [
+    { title: "warm up", estMin: 10 },
+    { title: "drills", estMin: 25 },
+  ]);
+  // tolerates prose around the JSON, drops blank titles / bad estMin
+  const messy = parseDayTasks('sure!\n{"tasks":[{"title":"  ok  ","estMin":-3},{"title":""}]}');
+  assert.deepEqual(messy, [{ title: "ok", estMin: 25 }]);
+  assert.deepEqual(parseDayTasks("not json"), []);
+  assert.equal(
+    parseDayTasks(
+      `{"tasks":${JSON.stringify(Array.from({ length: 9 }, (_, i) => ({ title: `t${i}` })))}}`,
+    ).length,
+    5,
+  );
+});
+
+test("refineDay: uses the model when enabled, attributes nothing", async () => {
+  process.env.MICHI_LLM = "1";
+  const fakeFetch = async () => ({
+    ok: true,
+    json: async () => ({ message: { content: '{"tasks":[{"title":"20 kanji","estMin":30}]}' } }),
+  });
+  const out = await refineDay("vocab", { area: "Japanese" }, { fetch: fakeFetch });
+  assert.equal(out.source, "ai");
+  assert.deepEqual(out.tasks, [{ title: "20 kanji", estMin: 30 }]);
+  delete process.env.MICHI_LLM;
+});
+
+test("refineDay: falls back to the focus itself when the model is off/unreachable", async () => {
+  delete process.env.MICHI_LLM; // on by default, but no fetch given → transport throws
+  const boom = async () => {
+    throw new Error("connection refused");
+  };
+  const out = await refineDay("listening practice", { taskDefaultMin: 20 }, { fetch: boom });
+  assert.deepEqual(out, {
+    tasks: [{ title: "listening practice", estMin: 20 }],
+    source: "fallback",
+  });
+  // empty focus → nothing
+  assert.deepEqual(await refineDay("   "), { tasks: [], source: "fallback" });
 });

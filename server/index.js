@@ -36,7 +36,7 @@ import { insights, kataSuggestions } from "./insights.js";
 import { weeklyReview } from "./review.js";
 import { goalProgress } from "./goals.js";
 import { buildDigest } from "./digest.js";
-import { aiConfig, refinePlan } from "./suggest.js";
+import { aiConfig, refinePlan, refineDay } from "./suggest.js";
 import { listBackups, runBackup, backupDir } from "./backup.js";
 import { renderExport, parseSync, planSync, applySync, hasParsedItems } from "./markdown.js";
 import {
@@ -529,6 +529,28 @@ app.post("/api/week/sync/apply", (req, res) => {
   } catch (e) {
     console.warn("POST /api/week/sync/apply failed:", e.message);
     res.status(400).json({ error: e.message || "week sync failed" });
+  }
+});
+
+// refine a day's focus (from a week plan) into a few concrete tasks with the local
+// model. Server-side feature — works over plain HTTP; falls back to the focus itself
+// when the model is off/unreachable, so the endpoint always returns something usable.
+app.post("/api/week/refine", async (req, res) => {
+  const focus = req.body?.focus;
+  if (typeof focus !== "string" || !focus.trim()) {
+    return res.status(400).json({ error: "focus is required" });
+  }
+  const state = getState();
+  try {
+    const out = await refineDay(focus, {
+      area: typeof req.body?.area === "string" ? req.body.area : null,
+      budgetMin: state.settings?.dailyMinutes,
+      taskDefaultMin: state.settings?.taskDefaultMin,
+    });
+    res.json(out);
+  } catch (e) {
+    console.warn("POST /api/week/refine failed:", e.message);
+    res.json({ tasks: [{ title: focus.trim() }], source: "fallback" });
   }
 });
 

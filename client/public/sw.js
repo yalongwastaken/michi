@@ -4,7 +4,7 @@
 // v3: the persimmon/indigo repaint — recolored shell, icons, and favicon
 // v4: web-push handlers for the Focus tab's end-of-block reminders
 // v5: re-subscribe on pushsubscriptionchange (browser key rotation)
-const CACHE = "michi-shell-v5";
+const CACHE = "michi-shell-v6";
 
 self.addEventListener("install", () => self.skipWaiting());
 

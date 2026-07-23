@@ -118,6 +118,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ markdown, weekStart }),
       }),
+    // break a day's focus into concrete task suggestions (local model, graceful)
+    refine: (focus, area) =>
+      req("/api/week/refine", { method: "POST", body: JSON.stringify({ focus, area }) }),
   },
   // daily journal / time log
   journal: {
