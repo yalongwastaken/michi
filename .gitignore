@@ -28,3 +28,6 @@ npm-debug.log*
 Thumbs.db
 .fuse_hidden*
 deploy/michi.local.service
+
+# ── local working notes ──────────────────────────────────────
+CLAUDE.md
