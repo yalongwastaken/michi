@@ -1,4 +1,4 @@
-# Michi — personal learning coach
+# Michi — Personal Learning Coach
 
 **v1.3.0** · self-hosted · single-user · no cloud · AI is optional & fully local
 
@@ -11,7 +11,7 @@ It's a single-user app designed to run on the same mini PC as Tsumiki and be rea
 privately from your phone or laptop over [Tailscale](https://tailscale.com) — no public
 ports, no cloud, your data never leaves your own devices.
 
-## The idea
+## The Idea
 
 You have more learning goals than you can hold in your head: roadmap.sh tracks, GitHub
 roadmaps, courses, books, half-started repos. Michi gives them structure and a daily
@@ -56,13 +56,19 @@ Michi mirrors Tsumiki's spine on purpose (same stack, same self-hosted patterns)
 a **separate app** with its own identity, data, port, and service. They share nothing
 at runtime.
 
+## Documentation
+
+- [`docs/INSTRUCTIONS.md`](./docs/INSTRUCTIONS.md) — run it on a mini PC, install it on
+  your phone, keep it running.
+- [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — release history.
+
 ## Requirements
 
 - **Node ≥ 22.12** and npm. The server uses the built-in `node:sqlite`
   (run with `--experimental-sqlite`); the client uses Vite 8. No database server or
   native build step required.
 
-## Quick start
+## Quick Start
 
 With [`make`](./Makefile):
 
@@ -73,7 +79,7 @@ make dev       # run backend (:4001) and frontend (:5174) together
 
 Then open http://localhost:5174 (the dev frontend proxies `/api` to the backend).
 
-## Production (on the mini PC, alongside Tsumiki)
+## Production (On the Mini PC, Alongside Tsumiki)
 
 Build the client once; the server then serves it from `/`:
 
@@ -92,7 +98,7 @@ two run side by side on the same box without colliding. Configuration via enviro
 
 Michi makes **no outbound network calls** — everything is local.
 
-### Optional: a smarter planner with a local model
+### Optional: A Smarter Planner With a Local Model
 
 By default the planner is a fast, deterministic rules engine (no dependencies, no
 model). If you want fuzzier judgment, point Michi at a **local** model and a "✨
@@ -119,7 +125,7 @@ Your whole dataset is only kilobytes, so it fits in any model's context window i
 — even a small 1–3B model sees everything at once. Bigger models just reason a bit
 better; the deterministic planner is always the safety net.
 
-## Optional: a morning (and evening) digest
+## Optional: A Morning (and Evening) Digest
 
 `GET /api/digest?format=text` returns a plain-text summary of the day (streak + the
 planned items + one nudge). With `?mode=evening` it looks back instead: what got done
@@ -133,14 +139,14 @@ mini PC can pipe either to any local notifier — no cloud, no outbound calls fr
 30 21 * * *  curl -s "http://localhost:4001/api/digest?mode=evening&format=text" | curl -s -d @- ntfy.local/michi
 ```
 
-## Reach it from your phone (Tailscale) + install as an app
+## Reach It From Your Phone (Tailscale) + Install as an App
 
 Same as Tsumiki: install Tailscale on the mini PC and your phone, then open
 `http://<mini-pc-tailscale-ip>:4001` (or `http://minipc:4001` with MagicDNS). In Safari
 / Chrome, **Share → Add to Home Screen** to install the PWA — it launches fullscreen
 with the Michi icon.
 
-## Back up your data
+## Back Up Your Data
 
 `make backup` takes a **WAL-safe** snapshot of the database (SQLite's `VACUUM INTO`,
 so it's complete and consistent even while the server is writing — a plain `cp`
@@ -218,7 +224,8 @@ update, but never delete.
 | POST   | `/api/kata/honor`    | honor a kata for the day (`{id, on}`) — meters, clean days, discipline grades            |
 | POST   | `/api/reset`         | wipe everything and start fresh                                                          |
 
-## License
+## Author
 
-All rights reserved. © 2026 Anthony. This is a personal project published for
-reference; no license to use, copy, modify, or distribute is granted.
+**Anthony Yalong**
+- Email: yalong.anthony123@gmail.com
+- GitHub: [@yalongwastaken](https://github.com/yalongwastaken)
